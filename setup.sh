@@ -8,7 +8,7 @@ echo "=== 2. Installing Istio ==="
 istioctl install -f istio/istio-operator.yaml -y
 
 echo "=== 3. Applying demo namespace ==="
-kubectl apply -f apps/namespace.yaml
+kubectl apply -f apps/demo/namespace.yaml
 
 echo "=== 3.5. Deploying RabbitMQ ==="
 kubectl apply -f rabbitmq/
