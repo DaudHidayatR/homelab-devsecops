@@ -8,3 +8,4 @@ wiki/*
 raw/*
 plans/*
 docs/openbao-integration.md
+rabbitmq/core/secret.yaml

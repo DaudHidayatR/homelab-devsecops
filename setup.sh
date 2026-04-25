@@ -24,6 +24,18 @@ echo "=== 3. Applying demo namespace ==="
 kubectl apply -f apps/demo/namespace.yaml
 
 echo "=== 3.5. Deploying RabbitMQ ==="
+
+# Generate RabbitMQ secret dynamically if it does not exist
+# (secret files are no longer committed to Git)
+if ! kubectl get secret rabbitmq-credentials -n messaging &>/dev/null; then
+  echo "Generating RabbitMQ credentials secret..."
+  RMQ_PASS=$(openssl rand -base64 32 | tr -d '\n')
+  kubectl create secret generic rabbitmq-credentials \
+    --namespace=messaging \
+    --from-literal=RABBITMQ_DEFAULT_USER=admin \
+    --from-literal=RABBITMQ_DEFAULT_PASS="$RMQ_PASS"
+fi
+
 kubectl apply -f rabbitmq/
 
 echo "=== 4. Deploying sample application ==="
