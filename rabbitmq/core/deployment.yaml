@@ -15,9 +15,23 @@ spec:
       labels:
         app: rabbitmq
     spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: rabbitmq
         image: rabbitmq:3-management-alpine
+        securityContext:
+          runAsNonRoot: true
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          runAsUser: 1000
+          seccompProfile:
+            type: RuntimeDefault
+          capabilities:
+            drop:
+            - ALL
         ports:
         - containerPort: 5672
           name: amqp
@@ -26,3 +40,13 @@ spec:
         envFrom:
         - secretRef:
             name: rabbitmq-credentials
+        volumeMounts:
+        - name: data
+          mountPath: /var/lib/rabbitmq
+        - name: tmp
+          mountPath: /tmp
+      volumes:
+      - name: data
+        emptyDir: {}
+      - name: tmp
+        emptyDir: {}

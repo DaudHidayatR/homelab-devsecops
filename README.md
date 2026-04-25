@@ -50,14 +50,15 @@ RabbitMQ is deployed to the `messaging` namespace.
    kubectl port-forward -n messaging svc/rabbitmq 15672:15672
    ```
 2. Open [http://localhost:15672](http://localhost:15672) in your browser.
-3. Log in with the default credentials:
-   - Username: `admin`
-   - Password: `password123`
+3. Log in with credentials retrieved from the cluster secret:
+   ```bash
+   kubectl get secret rabbitmq-credentials -n messaging -o jsonpath='{.data.RABBITMQ_DEFAULT_PASS}' | base64 -d
+   ```
 
 ### Inter-Service Communication
-Your microservices can connect to RabbitMQ using the internal cluster DNS:
+Your microservices can connect to RabbitMQ using the internal cluster DNS. Retrieve the password from the Kubernetes secret or OpenBao:
 ```
-RABBITMQ_URL=amqp://admin:password123@rabbitmq.messaging.svc.cluster.local:5672
+RABBITMQ_URL=amqp://admin:<password>@rabbitmq.messaging.svc.cluster.local:5672
 ```
 
 ## Accessing OpenBao (Secret Management)
