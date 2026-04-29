@@ -1,16 +1,11 @@
 #!/usr/bin/env bash
 set -eo pipefail
 
-CLUSTER_NAME="rootless-mesh"
-CLUSTER_CONTEXT="kind-${CLUSTER_NAME}"
-OPENBAO_NAMESPACE="openbao"
-OPENBAO_RELEASE="openbao"
-OPENBAO_CHART_VERSION="0.26.2"
-OPENBAO_IMAGE="quay.io/openbao/openbao:2.5.2"
-
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/config.env"
 
 echo "=== 1. Creating kind cluster (rootless) ==="
-if kind get clusters | awk '$0 == "rootless-mesh" {found=1} END {exit !found}'; then
+if kind get clusters | awk -v name="${CLUSTER_NAME}" '$0 == name {found=1} END {exit !found}'; then
   echo "    Kind cluster \"${CLUSTER_NAME}\" already exists, skipping creation."
   kubectl config use-context "$CLUSTER_CONTEXT" >/dev/null 2>&1 || true
 else
@@ -20,36 +15,28 @@ fi
 echo "=== 2. Installing Istio ==="
 istioctl install -f istio/istio-operator.yaml -y
 
-echo "=== 3. Applying demo namespace ==="
-kubectl apply -f apps/demo/namespace.yaml
+echo "=== 3. Creating namespaces ==="
+kubectl create namespace "${DEMO_NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f -
+kubectl create namespace "${RABBITMQ_NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f -
+kubectl create namespace "${OPENBAO_NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f -
 
-echo "=== 3.5. Deploying RabbitMQ ==="
+echo "=== 4. Deploying RabbitMQ credentials ==="
 
 # Generate RabbitMQ secret dynamically if it does not exist
 # (secret files are no longer committed to Git)
-if ! kubectl get secret rabbitmq-credentials -n messaging &>/dev/null; then
+if ! kubectl get secret rabbitmq-credentials -n "${RABBITMQ_NAMESPACE}" &>/dev/null; then
   echo "Generating RabbitMQ credentials secret..."
   RMQ_PASS=$(openssl rand -base64 32 | tr -d '\n')
   kubectl create secret generic rabbitmq-credentials \
-    --namespace=messaging \
+    --namespace="${RABBITMQ_NAMESPACE}" \
     --from-literal=RABBITMQ_DEFAULT_USER=admin \
     --from-literal=RABBITMQ_DEFAULT_PASS="$RMQ_PASS"
 fi
 
-kubectl apply -f rabbitmq/
+echo "=== 5. Applying all Kubernetes manifests ==="
+kubectl apply -k "${SCRIPT_DIR}"
 
-echo "=== 4. Deploying sample application ==="
-kubectl apply -f apps/demo/sample-app/deployment.yaml
-
-echo "=== 5. Installing Headlamp Web UI ==="
-kubectl apply -f headlamp/headlamp.yaml
-
-echo "=== 6. Configuring Headlamp access ==="
-kubectl apply -f headlamp/headlamp-admin.yaml
-
-echo "=== 7. Deploying OpenBao (secret management — raft storage) ==="
-
-kubectl apply -f openbao/namespace.yaml
+echo "=== 6. Deploying OpenBao (secret management — single-node raft) ==="
 
 helm repo add openbao https://openbao.github.io/openbao-helm 2>/dev/null || true
 helm repo update
@@ -100,10 +87,9 @@ echo "1. Run: kubectl port-forward -n messaging svc/rabbitmq 15672:15672"
 echo "2. Open http://localhost:15672"
 echo "3. Get the password: kubectl get secret rabbitmq-credentials -n messaging -o jsonpath='{.data.RABBITMQ_DEFAULT_PASS}' | base64 -d"
 echo ""
-echo "To bootstrap OpenBao (raft integrated storage):"
+echo "To bootstrap OpenBao (single-node raft):"
 echo "1. Run: kubectl port-forward -n openbao svc/openbao 8200:8200"
 echo "2. Initialize once: kubectl exec -it -n openbao openbao-0 -- bao operator init -key-shares=1 -key-threshold=1"
 echo "3. Unseal with the returned key: kubectl exec -it -n openbao openbao-0 -- bao operator unseal <unseal_key>"
 echo "4. Open http://localhost:8200 in your browser"
 echo "5. Back up the init output outside the cluster (root token + unseal key)"
-echo "6. Verify raft: kubectl exec -n openbao openbao-0 -- bao operator raft list-peers"

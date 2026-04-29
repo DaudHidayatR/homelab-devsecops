@@ -1,0 +1,19 @@
+# Exclude non-deployable directories from Semgrep scanning
+# These contain documentation, planning files, and helper scripts — not infrastructure code
+wiki/
+raw/
+plans/
+docs/
+scripts/
+
+# Exclude markdown and plain text files
+*.md
+*.txt
+
+# Exclude generated reports (may contain secret fragments)
+trivy-report.*
+trivy-rendered.*
+grype-report.*
+gitleaks-report.*
+semgrep-report.*
+sbom-*.json

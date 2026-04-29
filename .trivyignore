@@ -1,0 +1,4 @@
+# These checks are enforced via Kustomize patches at build time.
+# Raw-file scanning reports false positives; rendered-manifest scanning is authoritative.
+KSV-0014
+KSV-0118

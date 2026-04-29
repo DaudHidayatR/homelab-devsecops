@@ -4,5 +4,3 @@ metadata:
   name: demo
   labels:
     istio-injection: enabled
-    pod-security.kubernetes.io/audit: restricted
-    pod-security.kubernetes.io/warn: restricted

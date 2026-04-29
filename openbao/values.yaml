@@ -1,4 +1,4 @@
-# OpenBao Helm chart values — fresh single-node raft
+# OpenBao Helm chart values — single-node raft (dev/lab)
 # Fresh install only, no migration
 # Chart repo: openbao/openbao
 
@@ -54,23 +54,9 @@ server:
   ha:
     enabled: true
     replicas: 1
-
     raft:
       enabled: true
       setNodeId: true
-      config: |
-        ui = true
-        disable_mlock = true
-
-        listener "tcp" {
-          tls_disable = 1
-          address = "[::]:8200"
-          cluster_address = "[::]:8201"
-        }
-
-        storage "raft" {
-          path = "/openbao/data"
-        }
 
 ui:
   enabled: false

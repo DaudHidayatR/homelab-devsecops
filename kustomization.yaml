@@ -1,0 +1,19 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - apps/demo/
+  - rabbitmq/
+  - headlamp/
+  - openbao/
+
+patches:
+  - path: bases/security-context/pod-security-context.yaml
+    target:
+      kind: Deployment
+  - path: bases/security-context/container-security-context.json
+    target:
+      kind: Deployment
+  - path: bases/namespace/common-labels.yaml
+    target:
+      kind: Namespace

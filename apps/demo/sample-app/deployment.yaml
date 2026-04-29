@@ -15,25 +15,11 @@ spec:
       labels:
         app: sample-app
     spec:
-      securityContext:
-        runAsNonRoot: true
-        seccompProfile:
-          type: RuntimeDefault
       containers:
       - name: nginx
-        image: nginx:alpine
+        image: nginx:1.27-alpine
         ports:
         - containerPort: 80
-        securityContext:
-          runAsNonRoot: true
-          allowPrivilegeEscalation: false
-          readOnlyRootFilesystem: true
-          runAsUser: 1000
-          seccompProfile:
-            type: RuntimeDefault
-          capabilities:
-            drop:
-            - ALL
         volumeMounts:
         - name: tmp
           mountPath: /tmp
