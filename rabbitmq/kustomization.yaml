@@ -9,3 +9,7 @@ resources:
   - core/service.yaml
   - networkpolicy.yaml
   - default-deny-ingress.yaml
+
+images:
+  - name: rabbitmq
+    newTag: "3.13-management-alpine"

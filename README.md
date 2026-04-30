@@ -27,12 +27,42 @@ The configuration is modularized into logical directories:
    chmod +x setup.sh destroy.sh
    ```
 2. Customize `config.env` if you want to change cluster names, namespaces, or image versions.
-3. Run the automated setup:
+3. Deploy the lab with Make:
+   ```bash
+   make up
+   ```
+   Or run the setup script directly:
    ```bash
    ./setup.sh
    ```
 
+Common workflows:
+| Command | Action |
+|---------|--------|
+| `make up` | Deploy the full cluster and all components |
+| `make down` | Tear down the kind cluster |
+| `make scan` | Run the security scanner suite |
+| `make tailscale` | Install the Tailscale Kubernetes Operator |
+| `make status` | Show pod status across all namespaces |
+
 Components are deployed via `kubectl apply -k` using Kustomize overlays. Each component directory (`apps/demo/`, `rabbitmq/`, `headlamp/`, `openbao/`) contains a `kustomization.yaml` that composes shared bases with component-specific resources.
+
+## Versioning
+
+All component versions are centralized in `config.env` and injected into manifests via Kustomize `images` patches. To upgrade a component, edit only `config.env` and the corresponding `images.newTag` in the component's `kustomization.yaml`.
+
+| Component | Version Source | Kustomize Patch |
+|-----------|---------------|-----------------|
+| OpenBao | `config.env: OPENBAO_VERSION` | `openbao/values.yaml` (Helm values) |
+| Headlamp | `config.env: HEADLAMP_VERSION` | `headlamp/kustomization.yaml` |
+| RabbitMQ | `config.env: RABBITMQ_VERSION` | `rabbitmq/kustomization.yaml` |
+| Sample App | `config.env: SAMPLE_APP_VERSION` | `apps/demo/kustomization.yaml` |
+
+Tag the repository after each validated deployment:
+```bash
+git tag -a infra-v1.0 -m "Baseline deployment"
+git push origin infra-v1.0
+```
 
 ## Accessing Headlamp (Kubernetes Web UI)
 This setup includes Headlamp to manage your cluster visually.

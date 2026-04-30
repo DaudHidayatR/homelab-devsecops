@@ -29,7 +29,7 @@ spec:
     spec:
       containers:
         - name: headlamp
-          image: ghcr.io/headlamp-k8s/headlamp:v0.30.0
+          image: ghcr.io/headlamp-k8s/headlamp
           args:
             - "-in-cluster"
             - "-plugins-dir=/headlamp/plugins"
