@@ -4,6 +4,11 @@ set -eo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/config.env"
 
+# DRY helper: ensure a namespace exists without repeating the kubectl pipe.
+ensure_namespace() {
+  kubectl create namespace "$1" --dry-run=client -o yaml | kubectl apply -f -
+}
+
 echo "=== 1. Creating kind cluster (rootless) ==="
 if kind get clusters | awk -v name="${CLUSTER_NAME}" '$0 == name {found=1} END {exit !found}'; then
   echo "    Kind cluster \"${CLUSTER_NAME}\" already exists, skipping creation."
@@ -16,9 +21,9 @@ echo "=== 2. Installing Istio ==="
 istioctl install -f istio/istio-operator.yaml -y
 
 echo "=== 3. Creating namespaces ==="
-kubectl create namespace "${DEMO_NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f -
-kubectl create namespace "${RABBITMQ_NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f -
-kubectl create namespace "${OPENBAO_NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f -
+for ns in "${DEMO_NAMESPACE}" "${RABBITMQ_NAMESPACE}" "${OPENBAO_NAMESPACE}"; do
+  ensure_namespace "$ns"
+done
 
 echo "=== 4. Deploying RabbitMQ credentials ==="
 
@@ -74,30 +79,5 @@ else
   echo "    You can continue using the cluster. OpenBao may still be starting up."
 fi
 
-echo "=== Setup Complete! ==="
-echo "Check pod status with: kubectl get pods -n demo"
-echo ""
-echo "--- Tailscale Private Access (recommended) ---"
-echo "1. Install the Tailscale operator: ./tailscale/install-operator.sh"
-echo "2. Once the operator is running, admin UIs are available on your tailnet:"
-echo "   Headlamp:  https://headlamp-kube-system.<tailnet>.ts.net"
-echo "   RabbitMQ:  https://rabbitmq-messaging.<tailnet>.ts.net"
-echo "   OpenBao:   https://openbao-openbao.<tailnet>.ts.net"
-echo ""
-echo "--- Legacy Port-Forward Access ---"
-echo "To access Headlamp Web UI:"
-echo "1. Run: kubectl port-forward -n kube-system service/headlamp 8080:80"
-echo "2. Get your login token: kubectl create token headlamp-admin -n kube-system"
-echo "3. Open http://localhost:8080 in your browser"
-echo ""
-echo "To access RabbitMQ Management UI:"
-echo "1. Run: kubectl port-forward -n messaging svc/rabbitmq 15672:15672"
-echo "2. Open http://localhost:15672"
-echo "3. Get the password: kubectl get secret rabbitmq-credentials -n messaging -o jsonpath='{.data.RABBITMQ_DEFAULT_PASS}' | base64 -d"
-echo ""
-echo "To bootstrap OpenBao (single-node raft):"
-echo "1. Run: kubectl port-forward -n openbao svc/openbao 8200:8200"
-echo "2. Initialize once: kubectl exec -it -n openbao openbao-0 -- bao operator init -key-shares=1 -key-threshold=1"
-echo "3. Unseal with the returned key: kubectl exec -it -n openbao openbao-0 -- bao operator unseal <unseal_key>"
-echo "4. Open http://localhost:8200 in your browser"
-echo "5. Back up the init output outside the cluster (root token + unseal key)"
+# SRP: access instructions live in their own script; setup.sh ends at infrastructure readiness.
+"${SCRIPT_DIR}/scripts/show-access-info.sh"
