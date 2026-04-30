@@ -79,5 +79,29 @@ else
   echo "    You can continue using the cluster. OpenBao may still be starting up."
 fi
 
+echo "=== 7. Installing Tailscale Operator (optional) ==="
+if [ -n "${TAILSCALE_CLIENT_ID}" ] && [ -n "${TAILSCALE_CLIENT_SECRET}" ]; then
+  ensure_namespace tailscale
+  if ! kubectl get secret operator-oauth -n tailscale &>/dev/null; then
+    echo "    Creating Tailscale OAuth secret..."
+    kubectl create secret generic operator-oauth \
+      --namespace tailscale \
+      --from-literal=client_id="${TAILSCALE_CLIENT_ID}" \
+      --from-literal=client_secret="${TAILSCALE_CLIENT_SECRET}"
+  fi
+  if ! kubectl get deployment operator -n tailscale &>/dev/null; then
+    echo "    Installing Tailscale Kubernetes Operator..."
+    kubectl apply -f https://github.com/tailscale/tailscale/releases/latest/download/tailscale-operator.yaml
+    echo "    Waiting for operator to be ready..."
+    kubectl rollout status deployment/operator -n tailscale --timeout=120s
+    echo "    ✓ Tailscale operator is ready."
+  else
+    echo "    Tailscale operator already installed."
+  fi
+else
+  echo "    TAILSCALE_CLIENT_ID or TAILSCALE_CLIENT_SECRET not set."
+  echo "    Skipping Tailscale operator. Set credentials in config.env to enable."
+fi
+
 # SRP: access instructions live in their own script; setup.sh ends at infrastructure readiness.
 "${SCRIPT_DIR}/scripts/show-access-info.sh"

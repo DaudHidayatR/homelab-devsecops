@@ -2,9 +2,11 @@
 set -eo pipefail
 
 # Tailscale Kubernetes Operator Installer
-# Requires: kubectl, a Tailscale OAuth client or auth key
+# NOTE: setup.sh now handles this automatically if TAILSCALE_CLIENT_ID
+# and TAILSCALE_CLIENT_SECRET are set in config.env.
+# This script remains as a standalone manual option.
 #
-# Before running:
+# Manual prerequisites (only if not using setup.sh auto-install):
 # 1. Create an OAuth client in the Tailscale admin console with "Devices" write scope.
 # 2. Create the secret:
 #    kubectl create secret generic operator-oauth \
