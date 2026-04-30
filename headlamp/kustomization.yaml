@@ -6,3 +6,5 @@ namespace: kube-system
 resources:
   - headlamp.yaml
   - headlamp-admin.yaml
+  - networkpolicy.yaml
+  - default-deny-ingress.yaml
