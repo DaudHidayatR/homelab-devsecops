@@ -106,6 +106,39 @@ Applications in the cluster can reach OpenBao at:
 OPENBAO_ADDR=http://openbao.openbao.svc.cluster.local:8200
 ```
 
+## Tailscale Private Access (Recommended)
+
+Admin services are annotated for automatic tailnet exposure via the Tailscale Kubernetes Operator.
+
+1. Install the operator:
+   ```bash
+   ./tailscale/install-operator.sh
+   ```
+   (Requires a Tailscale OAuth client; see `tailscale/README.md` for setup.)
+
+2. Once the operator is running, access admin UIs directly from any device on your tailnet:
+
+   | Service | Tailnet URL |
+   |---------|-------------|
+   | Headlamp | `https://headlamp-kube-system.<tailnet>.ts.net` |
+   | RabbitMQ | `https://rabbitmq-messaging.<tailnet>.ts.net` |
+   | OpenBao  | `https://openbao-openbao.<tailnet>.ts.net` |
+
+3. No port-forwarding, SSH tunnels, or public IPs required.
+
+### Future Public Access
+
+To expose a service to the public internet, change the annotation from:
+```yaml
+tailscale.com/expose: "true"
+```
+to:
+```yaml
+tailscale.com/funnel: "true"
+```
+
+This uses the same operator; no new infrastructure is needed.
+
 ## Tear Down
 To destroy the local infrastructure and free up resources, run the destroy script:
 ```bash

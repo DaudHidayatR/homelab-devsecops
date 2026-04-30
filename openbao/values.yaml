@@ -15,6 +15,10 @@ server:
   image:
     tag: "2.5.2"
 
+  service:
+    annotations:
+      tailscale.com/expose: "true"
+
   updateStrategyType: RollingUpdate
 
   resources:
