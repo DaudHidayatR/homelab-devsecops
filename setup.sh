@@ -91,7 +91,7 @@ if [ -n "${TAILSCALE_CLIENT_ID}" ] && [ -n "${TAILSCALE_CLIENT_SECRET}" ]; then
   fi
   if ! kubectl get deployment operator -n tailscale &>/dev/null; then
     echo "    Installing Tailscale Kubernetes Operator..."
-    kubectl apply -f https://github.com/tailscale/tailscale/releases/latest/download/tailscale-operator.yaml
+    kubectl apply -f https://raw.githubusercontent.com/tailscale/tailscale/main/cmd/k8s-operator/deploy/manifests/operator.yaml
     echo "    Waiting for operator to be ready..."
     kubectl rollout status deployment/operator -n tailscale --timeout=120s
     echo "    ✓ Tailscale operator is ready."

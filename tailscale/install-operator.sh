@@ -20,15 +20,13 @@ set -eo pipefail
 #      --from-literal=oauth_client_id=tskey-client-<ID> \
 #      --from-literal=oauth_client_secret=tskey-<SECRET>
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
 if kubectl get deployment -n tailscale operator &>/dev/null; then
   echo "Tailscale operator already installed. Skipping."
   exit 0
 fi
 
 echo "=== Installing Tailscale Kubernetes Operator ==="
-kubectl apply -f https://github.com/tailscale/tailscale/releases/latest/download/tailscale-operator.yaml
+kubectl apply -f https://raw.githubusercontent.com/tailscale/tailscale/main/cmd/k8s-operator/deploy/manifests/operator.yaml
 
 echo "=== Waiting for operator to be ready ==="
 kubectl rollout status deployment/operator -n tailscale --timeout=120s

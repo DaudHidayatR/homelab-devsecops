@@ -163,14 +163,17 @@ run_scan "4. GitLeaks secret detection..." "$GITLEAKS_IMAGE" \
 # We explicitly exclude the two noisy K8s rules while keeping all other
 # Semgrep rules active for shell-script and general security coverage.
 
-EXCLUDE_K8S="--exclude-rule=yaml.kubernetes.security.run-as-non-root.run-as-non-root --exclude-rule=yaml.kubernetes.security.allow-privilege-escalation-no-securitycontext.allow-privilege-escalation-no-securitycontext"
+EXCLUDE_K8S=(
+  --exclude-rule=yaml.kubernetes.security.run-as-non-root.run-as-non-root
+  --exclude-rule=yaml.kubernetes.security.allow-privilege-escalation-no-securitycontext.allow-privilege-escalation-no-securitycontext
+)
 
 run_scan "5a. Semgrep SAST scan (JSON)..." "$SEMGREP_IMAGE" \
   semgrep scan \
   --config p/default \
   --config p/secrets \
   --config p/supply-chain \
-  $EXCLUDE_K8S \
+  "${EXCLUDE_K8S[@]}" \
   --metrics=off \
   --json \
   --output semgrep-report.json \
@@ -181,7 +184,7 @@ run_scan "5b. Semgrep SAST scan (SARIF)..." "$SEMGREP_IMAGE" \
   --config p/default \
   --config p/secrets \
   --config p/supply-chain \
-  $EXCLUDE_K8S \
+  "${EXCLUDE_K8S[@]}" \
   --metrics=off \
   --sarif \
   --output semgrep-report.sarif \
@@ -192,7 +195,7 @@ run_scan "5c. Semgrep SAST scan (Text)..." "$SEMGREP_IMAGE" \
   --config p/default \
   --config p/secrets \
   --config p/supply-chain \
-  $EXCLUDE_K8S \
+  "${EXCLUDE_K8S[@]}" \
   --metrics=off \
   --output semgrep-report.txt \
   .

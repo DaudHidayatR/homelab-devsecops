@@ -7,6 +7,7 @@ resources:
   - headlamp.yaml
   - headlamp-admin.yaml
   - networkpolicy.yaml
+  - allow-dns-ingress.yaml
   - default-deny-ingress.yaml
 
 images:
