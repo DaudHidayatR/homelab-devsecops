@@ -17,3 +17,10 @@ spec:
     ports:
     - protocol: TCP
       port: 4466
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: tailscale
+    ports:
+    - protocol: TCP
+      port: 4466
