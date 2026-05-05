@@ -25,3 +25,12 @@ spec:
     ports:
     - protocol: TCP
       port: 15672
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: tailscale
+    ports:
+    - protocol: TCP
+      port: 5672
+    - protocol: TCP
+      port: 15672
