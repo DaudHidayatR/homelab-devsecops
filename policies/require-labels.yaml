@@ -1,0 +1,31 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: require-labels
+  annotations:
+    policies.kyverno.io/title: Require Labels
+    policies.kyverno.io/category: Best Practices
+    policies.kyverno.io/severity: medium
+    policies.kyverno.io/description: >-
+      Kubernetes resources should have a standard set of labels for
+      identification, cost allocation, and lifecycle management.
+spec:
+  validationFailureAction: Audit
+  background: true
+  rules:
+    - name: check-for-labels
+      match:
+        resources:
+          kinds:
+            - Deployment
+            - StatefulSet
+            - DaemonSet
+            - Service
+      validate:
+        message: "The resource must have app, env, and owner labels."
+        pattern:
+          metadata:
+            labels:
+              app: "?*"
+              env: "?*"
+              owner: "?*"

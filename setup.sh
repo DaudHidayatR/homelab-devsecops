@@ -4,11 +4,6 @@ set -eo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/config.env"
 
-# DRY helper: ensure a namespace exists without repeating the kubectl pipe.
-ensure_namespace() {
-  kubectl create namespace "$1" --dry-run=client -o yaml | kubectl apply -f -
-}
-
 echo "=== 1. Creating kind cluster (rootless) ==="
 if kind get clusters | awk -v name="${CLUSTER_NAME}" '$0 == name {found=1} END {exit !found}'; then
   echo "    Kind cluster \"${CLUSTER_NAME}\" already exists, skipping creation."
@@ -20,13 +15,7 @@ fi
 echo "=== 2. Installing Istio ==="
 istioctl install -f istio/istio-operator.yaml -y
 
-echo "=== 3. Creating namespaces ==="
-for ns in "${DEMO_NAMESPACE}" "${RABBITMQ_NAMESPACE}" "${OPENBAO_NAMESPACE}"; do
-  ensure_namespace "$ns"
-done
-
-echo "=== 4. Deploying RabbitMQ credentials ==="
-
+echo "=== 3. Deploying RabbitMQ credentials ==="
 # Generate RabbitMQ secret dynamically if it does not exist
 # (secret files are no longer committed to Git)
 if ! kubectl get secret rabbitmq-credentials -n "${RABBITMQ_NAMESPACE}" &>/dev/null; then
@@ -38,50 +27,41 @@ if ! kubectl get secret rabbitmq-credentials -n "${RABBITMQ_NAMESPACE}" &>/dev/n
     --from-literal=RABBITMQ_DEFAULT_PASS="$RMQ_PASS"
 fi
 
-echo "=== 5. Applying all Kubernetes manifests ==="
-kubectl apply -k "${SCRIPT_DIR}"
-
-echo "=== 6. Deploying OpenBao (secret management — single-node raft) ==="
-
-helm repo add openbao https://openbao.github.io/openbao-helm 2>/dev/null || true
-helm repo update
-
-echo "    Installing OpenBao via Helm..."
-helm upgrade --install "$OPENBAO_RELEASE" \
-  openbao/openbao \
-  --namespace "$OPENBAO_NAMESPACE" \
-  --version "$OPENBAO_CHART_VERSION" \
-  --values openbao/values.yaml \
-  --timeout 10m
-
-CURRENT_OPENBAO_IMAGE=$(kubectl get pod -n "$OPENBAO_NAMESPACE" "${OPENBAO_RELEASE}-0" -o jsonpath='{.spec.containers[?(@.name=="openbao")].image}' 2>/dev/null || true)
-if [ -n "$CURRENT_OPENBAO_IMAGE" ] && [ "$CURRENT_OPENBAO_IMAGE" != "$OPENBAO_IMAGE" ]; then
-  echo "    Detected outdated OpenBao pod image (${CURRENT_OPENBAO_IMAGE}); recreating pod..."
-  kubectl delete pod -n "$OPENBAO_NAMESPACE" "${OPENBAO_RELEASE}-0" --wait=false >/dev/null 2>&1 || true
-fi
-
-echo "    Waiting for OpenBao pod to report ready..."
-if kubectl wait \
-  --namespace "$OPENBAO_NAMESPACE" \
-  --for=condition=Ready pod \
-  -l app.kubernetes.io/name=openbao \
-  --timeout=300s; then
-  echo "    ✓ OpenBao pod is ready for bootstrap."
+echo "=== 4. Bootstrapping Flux CD ==="
+if command -v flux >/dev/null 2>&1; then
+  echo "    Flux CLI found. Running pre-flight checks..."
+  if flux check --pre >/dev/null 2>&1; then
+    if [ -n "${GITHUB_TOKEN:-}" ] && [ -n "${GITHUB_USER:-}" ]; then
+      echo "    Bootstrapping Flux from GitHub..."
+      flux bootstrap github \
+        --owner="$GITHUB_USER" \
+        --repository=project-ssdlc-devsecops-boilerplate \
+        --branch=main \
+        --path=./clusters/kind \
+        --personal
+      echo "    ✓ Flux bootstrapped. Cluster state is now managed by GitOps."
+    else
+      echo "    GITHUB_TOKEN or GITHUB_USER not set."
+      echo "    Set these in config.env or your environment to enable GitOps."
+      echo "    Falling back to kubectl apply -k..."
+      kubectl apply -k "${SCRIPT_DIR}"
+    fi
+  else
+    echo "    ⚠ Flux pre-flight checks failed."
+    echo "    Falling back to kubectl apply -k..."
+    kubectl apply -k "${SCRIPT_DIR}"
+  fi
 else
-  echo "    ⚠  Timeout waiting for OpenBao readiness."
-  echo "    Current pod status:"
-  kubectl get pods -n "$OPENBAO_NAMESPACE" -o wide || true
-  echo ""
-  echo "    Check logs with:"
-  echo "    kubectl describe pods -n ${OPENBAO_NAMESPACE}"
-  echo "    kubectl logs -n ${OPENBAO_NAMESPACE} statefulset/${OPENBAO_RELEASE}"
-  echo ""
-  echo "    You can continue using the cluster. OpenBao may still be starting up."
+  echo "    Flux CLI not found. Install from https://fluxcd.io/flux/installation/"
+  echo "    Falling back to kubectl apply -k..."
+  kubectl apply -k "${SCRIPT_DIR}"
 fi
 
-echo "=== 7. Installing Tailscale Operator (optional) ==="
+echo "=== 5. Installing Tailscale Operator (optional) ==="
 if [ -n "${TAILSCALE_CLIENT_ID}" ] && [ -n "${TAILSCALE_CLIENT_SECRET}" ]; then
-  ensure_namespace tailscale
+  if ! kubectl get namespace tailscale &>/dev/null; then
+    kubectl create namespace tailscale --dry-run=client -o yaml | kubectl apply -f -
+  fi
   if ! kubectl get secret operator-oauth -n tailscale &>/dev/null; then
     echo "    Creating Tailscale OAuth secret..."
     kubectl create secret generic operator-oauth \

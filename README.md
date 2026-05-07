@@ -8,15 +8,18 @@ A minimal, rootless local development environment using `kind`, Istio, and Rabbi
 - `kind` CLI
 - `kubectl` CLI *(Kustomize is built-in since v1.14; no separate install needed)*
 - `istioctl` CLI
-- `helm` CLI
+- `helm` CLI *(fallback only; Flux manages OpenBao declaratively)*
+- `flux` CLI *(optional; enables GitOps reconciliation. Install from [fluxcd.io](https://fluxcd.io/flux/installation/))*
 
 ## Project Structure
 The configuration is modularized into logical directories:
+- `clusters/kind/`: Flux CD GitOps entry point — `Kustomization` CRDs that reconcile `infrastructure/` and `apps/`.
+- `infrastructure/`: Foundational cluster resources — namespaces and declarative Helm releases (OpenBao).
 - `kind/`: Cluster bootstrapping configurations.
 - `istio/`: Declarative `istiod` control plane configuration.
 - `rabbitmq/`: RabbitMQ message broker manifests in a dedicated namespace (kept outside the mesh).
 - `headlamp/`: Kubernetes Web UI manifests for visual management.
-- `openbao/`: OpenBao secret-management manifests and Helm values — single-node raft (kept outside the mesh).
+- `openbao/`: OpenBao network policies and Helm values — the actual deployment is managed by Flux via `infrastructure/openbao/`.
 - `apps/`: Application deployments structured by `namespace/service`.
 - `bases/`: Reusable Kustomize bases for shared security contexts, network policies, and namespace labels.
 - `config.env`: Centralized constants (cluster name, namespaces, image versions) shared by scripts and manifests.
@@ -44,8 +47,12 @@ Common workflows:
 | `make scan` | Run the security scanner suite |
 | `make tailscale` | Install the Tailscale Kubernetes Operator |
 | `make status` | Show pod status across all namespaces |
+| `make validate-kustomize` | Validate all Kustomize overlays |
+| `make sync` | Trigger immediate Flux reconciliation |
+| `make flux-status` | Show Flux resource status |
+| `make flux-diff` | Show pending changes for Flux-managed resources |
 
-Components are deployed via `kubectl apply -k` using Kustomize overlays. Each component directory (`apps/demo/`, `rabbitmq/`, `headlamp/`, `openbao/`) contains a `kustomization.yaml` that composes shared bases with component-specific resources.
+Components are deployed via **Flux CD** when `GITHUB_TOKEN` and `GITHUB_USER` are configured. Flux continuously reconciles the cluster state with this Git repository. If Flux is not available, `setup.sh` falls back to `kubectl apply -k` using Kustomize overlays.
 
 ## Versioning
 
@@ -63,6 +70,52 @@ Tag the repository after each validated deployment:
 git tag -a infra-v1.0 -m "Baseline deployment"
 git push origin infra-v1.0
 ```
+
+## GitOps with Flux CD
+
+This project uses [Flux CD](https://fluxcd.io) to automatically reconcile cluster state with this Git repository.
+
+### Enabling Flux
+
+1. Install the Flux CLI: https://fluxcd.io/flux/installation/
+2. Add your GitHub credentials to `config.env`:
+   ```bash
+   GITHUB_USER="your-github-username"
+   GITHUB_TOKEN="ghp_xxxxxxxxxxxx"
+   ```
+3. Run `make up` — `setup.sh` will bootstrap Flux after creating the cluster.
+
+### How Flux Works Here
+
+| Flux Resource | Purpose |
+|-------------|---------|
+| `clusters/kind/infrastructure.yaml` | Reconciles namespaces and OpenBao HelmRelease |
+| `clusters/kind/apps.yaml` | Reconciles demo app, RabbitMQ, and Headlamp |
+| `infrastructure/openbao/helmrepository.yaml` | Indexes the OpenBao Helm chart repository |
+| `infrastructure/openbao/helmrelease.yaml` | Declaratively installs/upgrades OpenBao |
+
+### Daily Operations
+
+```bash
+# Trigger immediate reconciliation
+make sync
+
+# Check Flux resource status
+make flux-status
+
+# Preview what would change
+make flux-diff
+
+# Watch reconciliation in real-time
+flux get kustomizations --watch
+
+# View Flux logs for errors
+flux logs --level=error
+```
+
+### Drift Detection
+
+If you manually edit a resource (e.g., `kubectl edit deployment`), Flux will automatically revert the change on its next reconciliation interval (default: 30 minutes). Run `make sync` to force immediate reconciliation.
 
 ## Accessing Headlamp (Kubernetes Web UI)
 This setup includes Headlamp to manage your cluster visually.

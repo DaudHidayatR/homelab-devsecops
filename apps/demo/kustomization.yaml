@@ -4,7 +4,6 @@ kind: Kustomization
 namespace: demo
 
 resources:
-  - namespace.yaml
   - sample-app/deployment.yaml
   - sample-app/service.yaml
   - networkpolicy.yaml
