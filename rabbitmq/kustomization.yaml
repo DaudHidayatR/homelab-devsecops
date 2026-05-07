@@ -4,7 +4,6 @@ kind: Kustomization
 namespace: messaging
 
 resources:
-  - namespace.yaml
   - core/deployment.yaml
   - core/service.yaml
   - networkpolicy.yaml

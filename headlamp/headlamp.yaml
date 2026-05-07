@@ -5,6 +5,7 @@ metadata:
   namespace: kube-system
   annotations:
     tailscale.com/expose: "true"
+    tailscale.com/serve: "true"
 spec:
   ports:
     - port: 80
