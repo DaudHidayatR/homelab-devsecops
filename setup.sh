@@ -98,6 +98,26 @@ if [ -n "${TAILSCALE_CLIENT_ID}" ] && [ -n "${TAILSCALE_CLIENT_SECRET}" ]; then
   else
     echo "    Tailscale operator already installed."
   fi
+
+  # Wait for proxy pods to be created by the operator
+  echo "    Waiting for Tailscale proxy pods to be ready..."
+  for _i in $(seq 1 30); do
+    PROXY_COUNT=$(kubectl get pods -n tailscale -l tailscale.com/managed=true,tailscale.com/parent-resource-type=svc --no-headers 2>/dev/null | grep -cv 'operator-' || true)
+    if [ "$PROXY_COUNT" -gt 0 ]; then
+      echo "    ✓ Found $PROXY_COUNT proxy pod(s)."
+      break
+    fi
+    sleep 5
+  done
+
+  # Configure tailscale serve on all proxy pods
+  echo "    Configuring tailscale serve on proxy pods..."
+  "${SCRIPT_DIR}/scripts/configure-tailscale-serve.sh"
+
+  # Deploy serve-watcher for persistence across proxy restarts
+  echo "    Deploying tailscale serve watcher (keeps serve config persistent)..."
+  kubectl apply -f "${SCRIPT_DIR}/tailscale/serve-watcher.yaml"
+  echo "    ✓ Serve watcher deployed."
 else
   echo "    TAILSCALE_CLIENT_ID or TAILSCALE_CLIENT_SECRET not set."
   echo "    Skipping Tailscale operator. Set credentials in config.env to enable."
