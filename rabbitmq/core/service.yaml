@@ -5,6 +5,7 @@ metadata:
   namespace: messaging
   annotations:
     tailscale.com/expose: "true"
+    tailscale.com/serve: "true"
 spec:
   type: ClusterIP
   selector:
