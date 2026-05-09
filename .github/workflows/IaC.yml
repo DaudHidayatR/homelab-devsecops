@@ -180,7 +180,7 @@ jobs:
         if: steps.kustomize.outputs.has_manifests == 'true' && hashFiles('policies/') != ''
         continue-on-error: true
         run: |
-          docker run --rm -v "$PWD:/src" -w /src "$CONFTEST_IMAGE" test /src/rendered-manifests/*.yaml
+          docker run --rm -v "$PWD:/src" -w /src "$CONFTEST_IMAGE" test --policy /src/policies/ /src/rendered-manifests/
       - name: Kyverno policy check
         if: steps.kustomize.outputs.has_manifests == 'true' && hashFiles('policies/') != ''
         continue-on-error: true
