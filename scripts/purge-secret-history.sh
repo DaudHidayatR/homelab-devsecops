@@ -8,6 +8,7 @@ set -eo pipefail
 SECRET_FILES=(
   "rabbitmq/secret.yaml"
   "rabbitmq/core/secret.yaml"
+  "apps/rabbitmq/core/secret.yaml"
 )
 
 echo "=== Git Secret History Purge ==="
@@ -64,7 +65,7 @@ fi
 echo ""
 echo "=== History rewritten ==="
 echo "Next steps:"
-echo "  1. Verify: git log --all --full-history -- rabbitmq/secret.yaml"
+echo "  1. Verify: git log --all --full-history -- rabbitmq/secret.yaml apps/rabbitmq/core/secret.yaml"
 echo "     (should return nothing)"
 echo "  2. Force-push: git push origin --force --all"
 echo "  3. Notify all contributors to re-clone the repository"

@@ -17,10 +17,10 @@ The configuration is modularized into logical directories:
 - `infrastructure/`: Foundational cluster resources — namespaces and declarative Helm releases (OpenBao).
 - `kind/`: Cluster bootstrapping configurations.
 - `istio/`: Declarative `istiod` control plane configuration.
-- `rabbitmq/`: RabbitMQ message broker manifests in a dedicated namespace (kept outside the mesh).
-- `headlamp/`: Kubernetes Web UI manifests for visual management.
-- `openbao/`: OpenBao network policies and Helm values — the actual deployment is managed by Flux via `infrastructure/openbao/`.
-- `apps/`: Application deployments structured by `namespace/service`.
+- `apps/`: Flux-managed application and access-layer overlays. It aggregates `apps/demo/`, `apps/rabbitmq/`, `apps/headlamp/`, and `apps/openbao/` through `apps/kustomization.yaml`.
+- `apps/rabbitmq/`: RabbitMQ message broker manifests in a dedicated namespace (kept outside the mesh).
+- `apps/headlamp/`: Kubernetes Web UI manifests for visual management.
+- `apps/openbao/`: OpenBao NetworkPolicies for application/admin access — the actual OpenBao Helm deployment is managed by Flux via `infrastructure/openbao/`.
 - `bases/`: Reusable Kustomize bases for shared security contexts, network policies, and namespace labels.
 - `config.env`: Centralized constants (cluster name, namespaces, image versions) shared by scripts and manifests.
 
@@ -52,7 +52,7 @@ Common workflows:
 | `make flux-status` | Show Flux resource status |
 | `make flux-diff` | Show pending changes for Flux-managed resources |
 
-Components are deployed via **Flux CD** when `GITHUB_TOKEN` and `GITHUB_USER` are configured. Flux continuously reconciles the cluster state with this Git repository. If Flux is not available, `setup.sh` falls back to `kubectl apply -k` using Kustomize overlays.
+Components are deployed via **Flux CD** when `GITHUB_TOKEN` and `GITHUB_USER` are configured. Flux continuously reconciles `infrastructure/` first, then `apps/` after infrastructure is ready. If Flux is not available, `setup.sh` falls back to the root `kubectl apply -k` aggregate, which includes the same infrastructure and app layers for local use.
 
 ## Versioning
 
@@ -60,9 +60,9 @@ All component versions are centralized in `config.env` and injected into manifes
 
 | Component | Version Source | Kustomize Patch |
 |-----------|---------------|-----------------|
-| OpenBao | `config.env: OPENBAO_VERSION` | `openbao/values.yaml` (Helm values) |
-| Headlamp | `config.env: HEADLAMP_VERSION` | `headlamp/kustomization.yaml` |
-| RabbitMQ | `config.env: RABBITMQ_VERSION` | `rabbitmq/kustomization.yaml` |
+| OpenBao | `config.env: OPENBAO_VERSION` | `infrastructure/openbao/values.yaml` (Flux Helm values) |
+| Headlamp | `config.env: HEADLAMP_VERSION` | `apps/headlamp/kustomization.yaml` |
+| RabbitMQ | `config.env: RABBITMQ_VERSION` | `apps/rabbitmq/kustomization.yaml` |
 | Sample App | `config.env: SAMPLE_APP_VERSION` | `apps/demo/kustomization.yaml` |
 
 Tag the repository after each validated deployment:
@@ -89,8 +89,8 @@ This project uses [Flux CD](https://fluxcd.io) to automatically reconcile cluste
 
 | Flux Resource | Purpose |
 |-------------|---------|
-| `clusters/kind/infrastructure.yaml` | Reconciles namespaces and OpenBao HelmRelease |
-| `clusters/kind/apps.yaml` | Reconciles demo app, RabbitMQ, and Headlamp |
+| `clusters/kind/infrastructure.yaml` | Reconciles namespaces and the OpenBao HelmRelease layer |
+| `clusters/kind/apps.yaml` | Reconciles the buildable `apps/` aggregate: demo app, RabbitMQ, Headlamp, and OpenBao NetworkPolicies |
 | `infrastructure/openbao/helmrepository.yaml` | Indexes the OpenBao Helm chart repository |
 | `infrastructure/openbao/helmrelease.yaml` | Declaratively installs/upgrades OpenBao |
 
@@ -245,7 +245,7 @@ The project uses a **dual-scan approach** to balance early feedback with authori
 
 ### Running Scans Locally
 ```bash
-./test-security-app.sh
+bash scripts/security-scan.sh
 ```
 
 This script generates:
@@ -261,7 +261,7 @@ All report artifacts are excluded from Git via `.gitignore`.
 ### Scanner Versions
 All scanner images are pinned to specific versions for reproducible results. Override via environment variables if needed:
 ```bash
-TRIVY_IMAGE=ghcr.io/aquasecurity/trivy:0.70.0 ./test-security-app.sh
+TRIVY_IMAGE=ghcr.io/aquasecurity/trivy:0.70.0 bash scripts/security-scan.sh
 ```
 
 ### Known False Positives

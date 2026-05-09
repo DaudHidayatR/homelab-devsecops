@@ -1,7 +1,6 @@
 # OpenBao Helm chart values — single-node raft (dev/lab)
-# NOTE: This file is a copy of openbao/values.yaml, consumed by the Flux
-# HelmRelease via configMapGenerator. Keep both files in sync.
-# If you edit one, edit the other to prevent Tailscale or version drift.
+# NOTE: This file is the Flux HelmRelease values source.
+# Keep OpenBao chart settings here to avoid values drift.
 # Fresh install only, no migration
 # Chart repo: openbao/openbao
 

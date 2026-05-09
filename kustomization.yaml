@@ -4,18 +4,9 @@ kind: Kustomization
 resources:
   - infrastructure/namespaces/
   - infrastructure/openbao/
-  - apps/demo/
-  - rabbitmq/
-  - headlamp/
-  - openbao/
+  - apps/
 
 patches:
-  - path: bases/security-context/pod-security-context.yaml
-    target:
-      kind: Deployment
-  - path: bases/security-context/container-security-context.json
-    target:
-      kind: Deployment
   - path: bases/namespace/common-labels.yaml
     target:
       kind: Namespace

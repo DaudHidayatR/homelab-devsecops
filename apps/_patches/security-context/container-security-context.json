@@ -1,0 +1,14 @@
+[
+  {
+    "op": "add",
+    "path": "/spec/template/spec/containers/0/securityContext",
+    "value": {
+      "runAsNonRoot": true,
+      "allowPrivilegeEscalation": false,
+      "readOnlyRootFilesystem": true,
+      "runAsUser": 1000,
+      "seccompProfile": {"type": "RuntimeDefault"},
+      "capabilities": {"drop": ["ALL"]}
+    }
+  }
+]

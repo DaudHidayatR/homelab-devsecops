@@ -16,6 +16,12 @@ echo "=== 2. Installing Istio ==="
 istioctl install -f istio/istio-operator.yaml -y
 
 echo "=== 3. Deploying RabbitMQ credentials ==="
+# The namespace is declarative in infrastructure/namespaces/, but the
+# runtime-generated RabbitMQ secret must be created before Flux/app fallback
+# reconciliation starts. Apply the namespace idempotently first so fresh
+# clusters do not fail on a missing namespace.
+kubectl apply -f "${SCRIPT_DIR}/infrastructure/namespaces/messaging.yaml"
+
 # Generate RabbitMQ secret dynamically if it does not exist
 # (secret files are no longer committed to Git)
 if ! kubectl get secret rabbitmq-credentials -n "${RABBITMQ_NAMESPACE}" &>/dev/null; then
