@@ -8,7 +8,3 @@ resources:
   - sample-app/service.yaml
   - networkpolicy.yaml
   - default-deny-ingress.yaml
-
-images:
-  - name: nginx
-    newTag: "1.27-alpine"

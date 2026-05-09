@@ -24,8 +24,11 @@ metadata:
   namespace: tailscale
 rules:
   - apiGroups: [""]
-    resources: ["pods", "pods/exec"]
-    verbs: ["get", "list", "create"]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create"]
 ---
 # ClusterRoleBinding for service read access
 apiVersion: rbac.authorization.k8s.io/v1
@@ -72,10 +75,25 @@ spec:
       labels:
         app: tailscale-serve-watcher
     spec:
+      automountServiceAccountToken: false
       serviceAccountName: tailscale-serve-watcher
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: watcher
-          image: bitnami/kubectl:latest
+          image: bitnami/kubectl:1.32
+          imagePullPolicy: Always
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 10001
+            capabilities:
+              drop:
+              - ALL
           command:
             - /bin/sh
             - -c
@@ -136,10 +154,32 @@ spec:
                 echo "$(date -Iseconds) Check complete, sleeping 300s..."
                 sleep 300
               done
-      resources:
-        requests:
-          memory: "64Mi"
-          cpu: "50m"
-        limits:
-          memory: "128Mi"
-          cpu: "200m"
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "50m"
+            limits:
+              memory: "128Mi"
+              cpu: "200m"
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          livenessProbe:
+            exec:
+              command:
+              - test
+              - -f
+              - /proc/1/cmdline
+            initialDelaySeconds: 30
+            periodSeconds: 120
+          readinessProbe:
+            exec:
+              command:
+              - test
+              - -f
+              - /proc/1/cmdline
+            initialDelaySeconds: 10
+            periodSeconds: 30
+      volumes:
+        - name: tmp
+          emptyDir: {}

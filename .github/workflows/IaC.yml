@@ -51,7 +51,12 @@ jobs:
       - name: Install pre-commit
         run: pip install pre-commit
       - name: Run pre-commit
-        run: pre-commit run --all-files
+        run: |
+          if [ "$GITHUB_REF_NAME" = "main" ] || [ "$GITHUB_REF_NAME" = "master" ]; then
+            SKIP=no-commit-to-branch pre-commit run --all-files
+          else
+            pre-commit run --all-files
+          fi
       - name: Terraform fmt
         if: hashFiles('**/*.tf') != ''
         run: terraform fmt -check -recursive
@@ -175,7 +180,7 @@ jobs:
         if: steps.kustomize.outputs.has_manifests == 'true' && hashFiles('policies/') != ''
         continue-on-error: true
         run: |
-          docker run --rm -v "$PWD:/src" -w /src "$CONFTEST_IMAGE" test /src/rendered-manifests/*.yaml
+          docker run --rm -v "$PWD:/src" -w /src "$CONFTEST_IMAGE" test --policy /src/policies/ /src/rendered-manifests/
       - name: Kyverno policy check
         if: steps.kustomize.outputs.has_manifests == 'true' && hashFiles('policies/') != ''
         continue-on-error: true

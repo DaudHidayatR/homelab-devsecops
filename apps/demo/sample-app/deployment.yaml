@@ -15,11 +15,45 @@ spec:
       labels:
         app: sample-app
     spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: nginx
-        image: nginx
+        image: nginx:1.27-alpine
+        imagePullPolicy: Always
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 10001
+          capabilities:
+            drop:
+            - ALL
         ports:
         - containerPort: 80
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 200m
+            memory: 256Mi
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 10
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 10
         volumeMounts:
         - name: tmp
           mountPath: /tmp

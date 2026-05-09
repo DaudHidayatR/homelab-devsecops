@@ -9,7 +9,3 @@ resources:
   - networkpolicy.yaml
   - allow-dns-ingress.yaml
   - default-deny-ingress.yaml
-
-images:
-  - name: ghcr.io/headlamp-k8s/headlamp
-    newTag: "v0.30.0"
