@@ -11,7 +11,7 @@ repos:
       - id: check-symlinks
       - id: check-yaml
         args: [--allow-multiple-documents]
-        exclude: ^(bases/istio/|bases/openbao/|headlamp/|istio/|openbao/|raw/|apps/.*/templates/|.*\.tmpl\.yaml$)
+        exclude: ^(bases/istio/|bases/openbao/|apps/headlamp/|istio/|apps/openbao/|raw/|apps/.*/templates/|.*\.tmpl\.yaml$)
       - id: check-json
       - id: check-toml
       - id: detect-private-key
@@ -33,4 +33,4 @@ repos:
       - id: yamllint
         args: [-c, .yamllint.yaml]
         files: \.(yaml|yml)$
-        exclude: ^(bases/istio/|bases/openbao/|headlamp/|istio/|openbao/|raw/|apps/.*/templates/|.*\.tmpl\.yaml$)
+        exclude: ^(bases/istio/|bases/openbao/|apps/headlamp/|istio/|apps/openbao/|raw/|apps/.*/templates/|.*\.tmpl\.yaml$)

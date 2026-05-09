@@ -5,19 +5,19 @@ on:
   push:
     branches: [main, master]
     paths:
-      - '**.tf'
-      - '**.yaml'
-      - '**.yml'
-      - 'kustomization.*'
-      - 'Dockerfile*'
+      - "**.tf"
+      - "**.yaml"
+      - "**.yml"
+      - "kustomization.*"
+      - "Dockerfile*"
   pull_request:
     branches: [main, master]
     paths:
-      - '**.tf'
-      - '**.yaml'
-      - '**.yml'
-      - 'kustomization.*'
-      - 'Dockerfile*'
+      - "**.tf"
+      - "**.yaml"
+      - "**.yml"
+      - "kustomization.*"
+      - "Dockerfile*"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -47,7 +47,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.x'
+          python-version: "3.x"
       - name: Install pre-commit
         run: pip install pre-commit
       - name: Run pre-commit
@@ -153,8 +153,20 @@ jobs:
       - name: Render Kustomize manifests
         id: kustomize
         run: |
-          if [ -f kustomization.yaml ] || [ -f kustomization.yml ] || [ -f Kustomization ]; then
-            docker run --rm -v "$PWD:/src" -w /src "$KUSTOMIZE_IMAGE" build /src > rendered-manifests.yaml
+          mkdir -p rendered-manifests
+          rendered=0
+          for overlay in clusters/kind infrastructure apps .; do
+            if [ -f "$overlay/kustomization.yaml" ] || \
+               [ -f "$overlay/kustomization.yml" ] || \
+               [ -f "$overlay/Kustomization" ]; then
+              safe_name="$(printf '%s' "$overlay" | sed 's#[/.]#-#g; s#^-#root#')"
+              docker run --rm -v "$PWD:/src" -w /src "$KUSTOMIZE_IMAGE" \
+                build "/src/$overlay" > "rendered-manifests/${safe_name}.yaml"
+              rendered=$((rendered + 1))
+            fi
+          done
+          if [ "$rendered" -gt 0 ]; then
+            cat rendered-manifests/*.yaml > rendered-manifests.yaml
             echo "has_manifests=true" >> "$GITHUB_OUTPUT"
           else
             echo "has_manifests=false" >> "$GITHUB_OUTPUT"
@@ -163,7 +175,7 @@ jobs:
         if: steps.kustomize.outputs.has_manifests == 'true' && hashFiles('policies/') != ''
         continue-on-error: true
         run: |
-          docker run --rm -v "$PWD:/src" -w /src "$CONFTEST_IMAGE" test /src/rendered-manifests.yaml
+          docker run --rm -v "$PWD:/src" -w /src "$CONFTEST_IMAGE" test /src/rendered-manifests/*.yaml
       - name: Kyverno policy check
         if: steps.kustomize.outputs.has_manifests == 'true' && hashFiles('policies/') != ''
         continue-on-error: true

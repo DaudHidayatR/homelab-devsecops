@@ -17,4 +17,5 @@ wiki/*
 raw/*
 plans/*
 docs/openbao-integration.md
-rabbitmq/core/secret.yaml
+apps/rabbitmq/core/secret.yaml
+.commandcode
