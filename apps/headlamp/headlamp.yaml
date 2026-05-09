@@ -28,15 +28,36 @@ spec:
       labels:
         k8s-app: headlamp
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: headlamp
-          image: ghcr.io/headlamp-k8s/headlamp
+          image: ghcr.io/headlamp-k8s/headlamp:v0.30.0
+          imagePullPolicy: Always
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 10001
+            capabilities:
+              drop:
+              - ALL
           args:
             - "-in-cluster"
             - "-plugins-dir=/headlamp/plugins"
           ports:
             - containerPort: 4466
               name: http
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
           readinessProbe:
             httpGet:
               scheme: HTTP
@@ -56,10 +77,14 @@ spec:
               mountPath: /tmp
             - name: cache
               mountPath: /headlamp/cache
+            - name: plugins
+              mountPath: /headlamp/plugins
       volumes:
         - name: tmp
           emptyDir: {}
         - name: cache
+          emptyDir: {}
+        - name: plugins
           emptyDir: {}
       nodeSelector:
         'kubernetes.io/os': linux
