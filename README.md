@@ -117,6 +117,36 @@ flux logs --level=error
 
 If you manually edit a resource (e.g., `kubectl edit deployment`), Flux will automatically revert the change on its next reconciliation interval (default: 30 minutes). Run `make sync` to force immediate reconciliation.
 
+## CI/CD Auto-Deploy
+
+Pushes to `main`/`master` trigger automated Flux reconciliation via a GitHub Actions
+runner connected to the VPS through Tailscale.
+
+### How It Works
+
+1. You push to `main` → the [IaC Security Pipeline](.github/workflows/IaC.yml) runs.
+2. Security gates pass (lint, secrets, misconfig, policy).
+3. The deploy job connects the runner to the tailnet with `tag:ci-runner`.
+4. Flux is told to immediately reconcile `infrastructure`, then `apps`.
+5. The job waits for both Kustomizations to report `Ready`.
+6. A smoke test prints pod status and Flux resource health.
+
+### One-Time Setup
+
+- **[VPS Tailscale Setup](wiki/docs/vps-tailscale-setup.md)** — Install Tailscale on the VPS host,
+  get its Tailscale IP, and verify connectivity.
+- **[CI Deploy Secrets](wiki/docs/ci-deploy-secrets.md)** — Create the Tailscale OAuth client for CI,
+  encode the kubeconfig, and configure GitHub Environment secrets.
+- **[Tailscale VPS Strategy](wiki/concepts/tailscale-vps-strategy.md)** — Full reference including
+  security model, TLS cert handling, and troubleshooting.
+
+### Manual Trigger
+
+You can still trigger reconciliation locally:
+```bash
+make sync
+```
+
 ## Accessing Headlamp (Kubernetes Web UI)
 This setup includes Headlamp to manage your cluster visually.
 
