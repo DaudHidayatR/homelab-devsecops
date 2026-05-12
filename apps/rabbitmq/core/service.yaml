@@ -3,6 +3,10 @@ kind: Service
 metadata:
   name: rabbitmq
   namespace: messaging
+  labels:
+    app: rabbitmq
+    env: development
+    owner: devsecops
   annotations:
     tailscale.com/expose: "true"
     tailscale.com/serve: "true"

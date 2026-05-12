@@ -5,6 +5,8 @@ metadata:
   namespace: demo
   labels:
     app: sample-app
+    env: development
+    owner: devsecops
 spec:
   type: ClusterIP
   selector:

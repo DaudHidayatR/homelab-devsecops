@@ -14,3 +14,16 @@ spec:
     name: flux-system
   dependsOn:
     - name: infrastructure
+  healthChecks:
+    - apiVersion: apps/v1
+      kind: Deployment
+      name: nginx
+      namespace: demo
+    - apiVersion: apps/v1
+      kind: Deployment
+      name: rabbitmq
+      namespace: messaging
+    - apiVersion: apps/v1
+      kind: Deployment
+      name: headlamp
+      namespace: kube-system

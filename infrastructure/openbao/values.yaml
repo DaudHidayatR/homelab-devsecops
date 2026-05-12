@@ -5,7 +5,7 @@
 # Chart repo: openbao/openbao
 
 global:
-  tlsDisable: true
+  tlsDisable: false
 
 injector:
   enabled: false
@@ -39,13 +39,21 @@ server:
     enabled: true
     path: "/v1/sys/health?standbyok=true&sealedcode=204&uninitcode=204"
     port: 8200
+    scheme: HTTPS
     initialDelaySeconds: 5
     periodSeconds: 5
     failureThreshold: 12
     timeoutSeconds: 3
 
   livenessProbe:
-    enabled: false
+    enabled: true
+    path: "/v1/sys/health?standbyok=true"
+    port: 8200
+    scheme: HTTPS
+    initialDelaySeconds: 60
+    periodSeconds: 10
+    failureThreshold: 6
+    timeoutSeconds: 5
 
   dataStorage:
     enabled: true
@@ -58,12 +66,35 @@ server:
   standalone:
     enabled: false
 
+  volumes:
+    - name: tls
+      secret:
+        secretName: openbao-tls
+  volumeMounts:
+    - name: tls
+      mountPath: /vault/userconfig/tls
+      readOnly: true
+
   ha:
     enabled: true
     replicas: 1
     raft:
       enabled: true
       setNodeId: true
+    config: |
+      ui = true
+
+      listener "tcp" {
+        tls_disable = 0
+        address = "[::]:8200"
+        cluster_address = "[::]:8201"
+        tls_cert_file = "/vault/userconfig/tls/tls.crt"
+        tls_key_file = "/vault/userconfig/tls/tls.key"
+      }
+
+      storage "raft" {
+        path = "/vault/data"
+      }
 
 ui:
   enabled: true

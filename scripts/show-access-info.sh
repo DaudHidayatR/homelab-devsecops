@@ -36,6 +36,6 @@ To bootstrap OpenBao (single-node raft):
 1. Run: kubectl port-forward -n openbao svc/openbao 8200:8200
 2. Initialize once: kubectl exec -it -n openbao openbao-0 -- bao operator init -key-shares=1 -key-threshold=1
 3. Unseal with the returned key: kubectl exec -it -n openbao openbao-0 -- bao operator unseal <unseal_key>
-4. Open http://localhost:8200 in your browser
+4. Open https://localhost:8200 in your browser (accept the self-signed certificate warning)
 5. Back up the init output outside the cluster (root token + unseal key)
 EOF

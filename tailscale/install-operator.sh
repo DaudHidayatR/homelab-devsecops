@@ -26,7 +26,7 @@ if kubectl get deployment -n tailscale operator &>/dev/null; then
 fi
 
 echo "=== Installing Tailscale Kubernetes Operator ==="
-kubectl apply -f https://raw.githubusercontent.com/tailscale/tailscale/main/cmd/k8s-operator/deploy/manifests/operator.yaml
+kubectl apply -f https://raw.githubusercontent.com/tailscale/tailscale/v1.96.4/cmd/k8s-operator/deploy/manifests/operator.yaml
 
 echo "=== Waiting for operator to be ready ==="
 kubectl rollout status deployment/operator -n tailscale --timeout=120s

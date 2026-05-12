@@ -14,14 +14,12 @@ A minimal, rootless local development environment using `kind`, Istio, and Rabbi
 ## Project Structure
 The configuration is modularized into logical directories:
 - `clusters/kind/`: Flux CD GitOps entry point — `Kustomization` CRDs that reconcile `infrastructure/` and `apps/`.
-- `infrastructure/`: Foundational cluster resources — namespaces and declarative Helm releases (OpenBao).
+- `infrastructure/`: Foundational cluster resources — namespaces (demo, messaging, openbao, istio-system), OpenBao (HelmRelease, NetworkPolicies), and Istio (HelmRelease + mTLS).
 - `kind/`: Cluster bootstrapping configurations.
-- `istio/`: Declarative `istiod` control plane configuration.
-- `apps/`: Flux-managed application and access-layer overlays. It aggregates `apps/demo/`, `apps/rabbitmq/`, `apps/headlamp/`, and `apps/openbao/` through `apps/kustomization.yaml`.
+- `patches/`: Strategic merge patches applied to resources (e.g., Pod Security Standards labels on Namespaces).
+- `apps/`: Flux-managed application overlays. Aggregates `apps/demo/`, `apps/rabbitmq/`, and `apps/headlamp/` through `apps/kustomization.yaml`.
 - `apps/rabbitmq/`: RabbitMQ message broker manifests in a dedicated namespace (kept outside the mesh).
 - `apps/headlamp/`: Kubernetes Web UI manifests for visual management.
-- `apps/openbao/`: OpenBao NetworkPolicies for application/admin access — the actual OpenBao Helm deployment is managed by Flux via `infrastructure/openbao/`.
-- `bases/`: Reusable Kustomize bases for shared security contexts, network policies, and namespace labels.
 - `config.env`: Centralized constants (cluster name, namespaces, image versions) shared by scripts and manifests.
 
 ## Usage
@@ -52,18 +50,20 @@ Common workflows:
 | `make flux-status` | Show Flux resource status |
 | `make flux-diff` | Show pending changes for Flux-managed resources |
 
-Components are deployed via **Flux CD** when `GITHUB_TOKEN` and `GITHUB_USER` are configured. Flux continuously reconciles `infrastructure/` first, then `apps/` after infrastructure is ready. If Flux is not available, `setup.sh` falls back to the root `kubectl apply -k` aggregate, which includes the same infrastructure and app layers for local use.
+Components are deployed via **Flux CD** when `GITHUB_TOKEN` and `GITHUB_USER` are configured. Flux continuously reconciles `infrastructure/` first, then `apps/` after infrastructure is ready. If Flux is not available, `setup.sh` falls back to applying `infrastructure/` then `apps/` sequentially via `kubectl apply -k`.
 
 ## Versioning
 
-All component versions are centralized in `config.env` and injected into manifests via Kustomize `images` patches. To upgrade a component, edit only `config.env` and the corresponding `images.newTag` in the component's `kustomization.yaml`.
+All component image versions are defined directly in their respective manifests. The canonical version reference is `config.env`, which documents the currently deployed versions and is consumed by scripts at runtime:
 
-| Component | Version Source | Kustomize Patch |
-|-----------|---------------|-----------------|
-| OpenBao | `config.env: OPENBAO_VERSION` | `infrastructure/openbao/values.yaml` (Flux Helm values) |
-| Headlamp | `config.env: HEADLAMP_VERSION` | `apps/headlamp/kustomization.yaml` |
-| RabbitMQ | `config.env: RABBITMQ_VERSION` | `apps/rabbitmq/kustomization.yaml` |
-| Sample App | `config.env: SAMPLE_APP_VERSION` | `apps/demo/kustomization.yaml` |
+| Component | Image Source | Controlled In |
+|-----------|-------------|---------------|
+| OpenBao | `config.env: OPENBAO_IMAGE` / `OPENBAO_CHART_VERSION` | `infrastructure/openbao/values.yaml` (Flux HelmRelease values) |
+| Headlamp | `config.env: HEADLAMP_IMAGE` / `HEADLAMP_VERSION` | `apps/headlamp/headlamp.yaml` (Deployment image) |
+| RabbitMQ | `config.env: RABBITMQ_IMAGE` | `apps/rabbitmq/core/deployment.yaml` (Deployment image) |
+| Sample App | `config.env: SAMPLE_APP_IMAGE` | `apps/demo/sample-app/deployment.yaml` (Deployment image) |
+
+To upgrade a component, update both `config.env` and the image field in the corresponding manifest. Version pinning ensures reproducible deployments across environments.
 
 Tag the repository after each validated deployment:
 ```bash
@@ -90,7 +90,7 @@ This project uses [Flux CD](https://fluxcd.io) to automatically reconcile cluste
 | Flux Resource | Purpose |
 |-------------|---------|
 | `clusters/kind/infrastructure.yaml` | Reconciles namespaces and the OpenBao HelmRelease layer |
-| `clusters/kind/apps.yaml` | Reconciles the buildable `apps/` aggregate: demo app, RabbitMQ, Headlamp, and OpenBao NetworkPolicies |
+| `clusters/kind/apps.yaml` | Reconciles the buildable `apps/` aggregate: demo app, RabbitMQ, and Headlamp |
 | `infrastructure/openbao/helmrepository.yaml` | Indexes the OpenBao Helm chart repository |
 | `infrastructure/openbao/helmrelease.yaml` | Declaratively installs/upgrades OpenBao |
 
@@ -194,7 +194,7 @@ OpenBao is deployed to the `openbao` namespace via the official Helm chart using
    ```bash
    kubectl exec -it -n openbao openbao-0 -- bao operator unseal <unseal_key>
    ```
-4. Open [http://localhost:8200](http://localhost:8200) in your browser.
+4. Open [https://localhost:8200](https://localhost:8200) in your browser (accept the self-signed certificate warning).
 
 ### Important Notes
 - **Back up the init output**: Store the root token and unseal key outside the cluster. Losing them means rebuilding the lab and recreating secrets.
@@ -206,7 +206,8 @@ After unsealing, you can enable the minimum useful features from inside the pod:
 
 ```bash
 kubectl exec -it -n openbao openbao-0 -- sh
-export BAO_ADDR=http://127.0.0.1:8200
+export BAO_ADDR=https://127.0.0.1:8200
+export BAO_SKIP_VERIFY=true
 bao login <root_token>
 bao secrets enable -path=secret kv-v2
 bao auth enable kubernetes
@@ -216,7 +217,8 @@ bao write auth/kubernetes/config kubernetes_host="https://$KUBERNETES_SERVICE_HO
 ### Internal Access
 Applications in the cluster can reach OpenBao at:
 ```
-OPENBAO_ADDR=http://openbao.openbao.svc.cluster.local:8200
+OPENBAO_ADDR=https://openbao.openbao.svc.cluster.local:8200
+BAO_SKIP_VERIFY=true  # self-signed cert in lab environment
 ```
 
 ## Tailscale Private Access (Recommended)
