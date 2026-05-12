@@ -10,7 +10,7 @@ metadata:
   name: headlamp-read-only
 rules:
   - apiGroups: [""]
-    resources: ["pods", "services", "configmaps", "namespaces", "nodes", "events", "persistentvolumeclaims", "secrets", "serviceaccounts"]
+    resources: ["pods", "services", "configmaps", "namespaces", "nodes", "events", "persistentvolumeclaims"]
     verbs: ["get", "list", "watch"]
   - apiGroups: ["apps"]
     resources: ["deployments", "statefulsets", "daemonsets", "replicasets"]
