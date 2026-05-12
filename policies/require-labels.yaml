@@ -10,7 +10,7 @@ metadata:
       Kubernetes resources should have a standard set of labels for
       identification, cost allocation, and lifecycle management.
 spec:
-  validationFailureAction: Audit
+  validationFailureAction: Enforce
   background: true
   rules:
     - name: check-for-labels

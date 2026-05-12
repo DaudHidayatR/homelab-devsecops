@@ -31,10 +31,10 @@ validate-kustomize:
 	kubectl kustomize apps/rabbitmq >/dev/null && echo "  ✓ apps/rabbitmq valid"
 	@echo "Validating apps/headlamp overlay..."
 	kubectl kustomize apps/headlamp >/dev/null && echo "  ✓ apps/headlamp valid"
-	@echo "Validating apps/openbao overlay..."
-	kubectl kustomize apps/openbao >/dev/null && echo "  ✓ apps/openbao valid"
 	@echo "Validating infrastructure overlay..."
 	kubectl kustomize infrastructure >/dev/null && echo "  ✓ infrastructure valid"
+	@echo "Validating infrastructure/openbao overlay..."
+	kubectl kustomize infrastructure/openbao >/dev/null && echo "  ✓ infrastructure/openbao valid"
 
 sync:
 	@echo "Triggering Flux reconciliation..."

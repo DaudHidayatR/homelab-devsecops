@@ -5,6 +5,8 @@ metadata:
   namespace: messaging
   labels:
     app: rabbitmq
+    env: development
+    owner: devsecops
 spec:
   replicas: 1
   selector:
@@ -14,6 +16,8 @@ spec:
     metadata:
       labels:
         app: rabbitmq
+        env: development
+        owner: devsecops
     spec:
       automountServiceAccountToken: false
       securityContext:
@@ -73,6 +77,8 @@ spec:
           mountPath: /etc/rabbitmq-secrets
           readOnly: true
       volumes:
+      # emptyDir: ephemeral storage is intentional for this lab environment.
+      # Messages are lost on pod restart. For production, replace with a PVC.
       - name: data
         emptyDir: {}
       - name: tmp

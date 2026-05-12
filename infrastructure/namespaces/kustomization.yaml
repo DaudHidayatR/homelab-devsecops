@@ -5,3 +5,10 @@ resources:
   - demo.yaml
   - messaging.yaml
   - openbao.yaml
+  - istio-system.yaml
+  - ci-rbac.yaml
+
+patches:
+  - path: patches/common-labels.yaml
+    target:
+      kind: Namespace

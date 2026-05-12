@@ -15,5 +15,5 @@ nodes:
           certSANs:
             - "127.0.0.1"
             - "localhost"
+            - "TAILSCALE_VPS_IP_PLACEHOLDER"
             - "TAILSCALE_VPS_HOSTNAME_PLACEHOLDER"
-            - "TAILSCALE_VPS_HOSTNAME_PLACEHOLDER.ts.net"

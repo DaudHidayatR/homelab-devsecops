@@ -9,11 +9,24 @@ if kind get clusters | awk -v name="${CLUSTER_NAME}" '$0 == name {found=1} END {
   echo "    Kind cluster \"${CLUSTER_NAME}\" already exists, skipping creation."
   kubectl config use-context "$CLUSTER_CONTEXT" >/dev/null 2>&1 || true
 else
-  kind create cluster --config kind/cluster.yaml
+  # Substitute certSANs placeholders with values from config.env
+  CLUSTER_CONFIG=$(mktemp /tmp/kind-cluster.XXXXXX.yaml)
+  cp "${SCRIPT_DIR}/kind/cluster.yaml" "$CLUSTER_CONFIG"
+  if [ -n "${TAILSCALE_VPS_IP:-}" ]; then
+    sed -i "s/TAILSCALE_VPS_IP_PLACEHOLDER/${TAILSCALE_VPS_IP}/g" "$CLUSTER_CONFIG"
+  else
+    sed -i '/TAILSCALE_VPS_IP_PLACEHOLDER/d' "$CLUSTER_CONFIG"
+  fi
+  if [ -n "${TAILSCALE_VPS_HOSTNAME:-}" ]; then
+    sed -i "s/TAILSCALE_VPS_HOSTNAME_PLACEHOLDER/${TAILSCALE_VPS_HOSTNAME}/g" "$CLUSTER_CONFIG"
+  else
+    sed -i '/TAILSCALE_VPS_HOSTNAME_PLACEHOLDER/d' "$CLUSTER_CONFIG"
+  fi
+  kind create cluster --config "$CLUSTER_CONFIG"
+  rm -f "$CLUSTER_CONFIG"
 fi
 
-echo "=== 2. Installing Istio ==="
-istioctl install -f istio/istio-operator.yaml -y
+echo "=== 2. Istio will be deployed via Flux HelmRelease (infrastructure/istio/)"
 
 echo "=== 3. Deploying RabbitMQ credentials ==="
 # The namespace is declarative in infrastructure/namespaces/, but the
@@ -33,6 +46,24 @@ if ! kubectl get secret rabbitmq-credentials -n "${RABBITMQ_NAMESPACE}" &>/dev/n
     --from-literal=RABBITMQ_DEFAULT_PASS="$RMQ_PASS"
 fi
 
+echo "=== 3.5. Generating OpenBao TLS certificate ==="
+kubectl apply -f "${SCRIPT_DIR}/infrastructure/namespaces/openbao.yaml"
+if ! kubectl get secret openbao-tls -n openbao &>/dev/null; then
+  echo "    Generating self-signed TLS cert for OpenBao..."
+  openssl req -x509 -nodes -newkey rsa:2048 \
+    -keyout /tmp/openbao-tls.key -out /tmp/openbao-tls.crt \
+    -days 3650 -subj "/CN=openbao.openbao.svc.cluster.local" \
+    -addext "subjectAltName=DNS:openbao.openbao.svc.cluster.local,DNS:openbao.openbao.svc,DNS:openbao,DNS:localhost,IP:127.0.0.1" 2>/dev/null
+  kubectl create secret tls openbao-tls \
+    --namespace=openbao \
+    --cert=/tmp/openbao-tls.crt \
+    --key=/tmp/openbao-tls.key
+  rm -f /tmp/openbao-tls.crt /tmp/openbao-tls.key
+  echo "    ✓ OpenBao TLS secret created."
+else
+  echo "    OpenBao TLS secret already exists, skipping."
+fi
+
 echo "=== 4. Bootstrapping Flux CD ==="
 if command -v flux >/dev/null 2>&1; then
   echo "    Flux CLI found. Running pre-flight checks..."
@@ -50,17 +81,20 @@ if command -v flux >/dev/null 2>&1; then
       echo "    GITHUB_TOKEN or GITHUB_USER not set."
       echo "    Set these in config.env or your environment to enable GitOps."
       echo "    Falling back to kubectl apply -k..."
-      kubectl apply -k "${SCRIPT_DIR}"
+      kubectl apply -k "${SCRIPT_DIR}/infrastructure"
+      kubectl apply -k "${SCRIPT_DIR}/apps"
     fi
   else
     echo "    ⚠ Flux pre-flight checks failed."
     echo "    Falling back to kubectl apply -k..."
-    kubectl apply -k "${SCRIPT_DIR}"
+    kubectl apply -k "${SCRIPT_DIR}/infrastructure"
+    kubectl apply -k "${SCRIPT_DIR}/apps"
   fi
 else
   echo "    Flux CLI not found. Install from https://fluxcd.io/flux/installation/"
   echo "    Falling back to kubectl apply -k..."
-  kubectl apply -k "${SCRIPT_DIR}"
+  kubectl apply -k "${SCRIPT_DIR}/infrastructure"
+  kubectl apply -k "${SCRIPT_DIR}/apps"
 fi
 
 echo "=== 5. Installing Tailscale Operator (optional) ==="
@@ -77,7 +111,7 @@ if [ -n "${TAILSCALE_CLIENT_ID}" ] && [ -n "${TAILSCALE_CLIENT_SECRET}" ]; then
   fi
   if ! kubectl get deployment operator -n tailscale &>/dev/null; then
     echo "    Installing Tailscale Kubernetes Operator..."
-    kubectl apply -f https://raw.githubusercontent.com/tailscale/tailscale/main/cmd/k8s-operator/deploy/manifests/operator.yaml
+    kubectl apply -f https://raw.githubusercontent.com/tailscale/tailscale/v1.96.4/cmd/k8s-operator/deploy/manifests/operator.yaml
     echo "    Waiting for operator to be ready..."
     kubectl rollout status deployment/operator -n tailscale --timeout=120s
     echo "    ✓ Tailscale operator is ready."
