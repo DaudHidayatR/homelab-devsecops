@@ -1,4 +1,4 @@
-.PHONY: up down scan tailscale status access-info help validate-kustomize sync flux-status flux-diff security sast secrets sca sbom iac validate clean
+.PHONY: up down scan tailscale tailscale-reset tailscale-sign tailscale-check status access-info help validate-kustomize sync redeploy flux-status flux-diff security sast secrets sca sbom iac validate clean
 
 up:
 	./setup.sh
@@ -11,6 +11,15 @@ scan:
 
 tailscale:
 	./tailscale/install-operator.sh
+
+tailscale-reset:
+	./tailscale/reset-proxies.sh
+
+tailscale-sign:
+	./tailscale/sign-proxies.sh --sudo
+
+tailscale-check:
+	./tailscale/check-access.sh
 
 status:
 	kubectl get pods -A
@@ -37,10 +46,18 @@ validate-kustomize:
 	kubectl kustomize infrastructure/openbao >/dev/null && echo "  ✓ infrastructure/openbao valid"
 
 sync:
-	@echo "Triggering Flux reconciliation..."
-	flux reconcile source git flux-system
-	flux reconcile kustomization infrastructure
-	flux reconcile kustomization apps
+	@if command -v flux >/dev/null 2>&1 && kubectl get namespace flux-system >/dev/null 2>&1; then \
+		echo "Triggering Flux reconciliation..."; \
+		flux reconcile source git flux-system; \
+		flux reconcile kustomization infrastructure; \
+		flux reconcile kustomization apps; \
+	else \
+		echo "Flux CLI or flux-system namespace not available; applying apps overlay with kubectl."; \
+		kubectl apply -k apps; \
+	fi
+
+redeploy: sync
+	@echo "Safe app redeploy complete. Cluster and Tailscale state were preserved."
 
 flux-status:
 	flux get all
@@ -84,9 +101,13 @@ clean: ## Remove generated reports
 help: ## Show this help
 	@echo "Available targets:"
 	@echo "  make up                  - Deploy the full kind cluster and all components"
-	@echo "  make down                - Tear down the kind cluster"
+	@echo "  make down                - Tear down the kind cluster (backs up Tailscale state first)"
+	@echo "  make redeploy            - Safely redeploy apps via Flux without destroying Tailscale state"
 	@echo "  make scan                - Run the security scanner suite"
 	@echo "  make tailscale           - Install the Tailscale Kubernetes Operator"
+	@echo "  make tailscale-reset     - Reset stale Kubernetes Tailscale proxy identities"
+	@echo "  make tailscale-sign      - Sign Kubernetes Tailscale proxy nodes for Tailnet Lock"
+	@echo "  make tailscale-check     - Check Tailscale DNS, Serve config, and HTTPS access"
 	@echo "  make status              - Show pod status across all namespaces"
 	@echo "  make access-info         - Show URLs and port-forward instructions"
 	@echo "  make validate-kustomize  - Validate all Kustomize overlays"

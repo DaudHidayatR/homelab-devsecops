@@ -5,11 +5,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/config.env"
 
 echo "=== 1. Creating kind cluster (rootless) ==="
-# Substitute TAILSCALE_VPS_HOSTNAME in certSANs if configured
-if [ -n "${TAILSCALE_VPS_HOSTNAME:-}" ]; then
-  echo "    Patching kind/cluster.yaml certSANs with ${TAILSCALE_VPS_HOSTNAME}..."
-  sed -i "s/TAILSCALE_VPS_HOSTNAME_PLACEHOLDER/${TAILSCALE_VPS_HOSTNAME}/g" kind/cluster.yaml
-fi
 if kind get clusters | awk -v name="${CLUSTER_NAME}" '$0 == name {found=1} END {exit !found}'; then
   echo "    Kind cluster \"${CLUSTER_NAME}\" already exists, skipping creation."
   kubectl config use-context "$CLUSTER_CONTEXT" >/dev/null 2>&1 || true
@@ -120,6 +115,13 @@ fi
 echo "=== 5. Installing Tailscale Operator (optional) ==="
 if [ -n "${TAILSCALE_CLIENT_ID}" ] && [ -n "${TAILSCALE_CLIENT_SECRET}" ]; then
   if ! kubectl get namespace tailscale &>/dev/null; then
+    BACKUP_ROOT="${TAILSCALE_BACKUP_DIR:-${SCRIPT_DIR}/.runtime-backups/tailscale}"
+    if [ -d "$BACKUP_ROOT" ]; then
+      echo "    ⚠ tailscale namespace is missing, but local Tailscale backups exist under: ${BACKUP_ROOT}"
+      echo "      To preserve the previous operator device identity, restore before continuing with:"
+      echo "      ./tailscale/restore-state.sh latest"
+      echo "      Continuing without restore may create duplicate Tailscale devices."
+    fi
     kubectl create namespace tailscale --dry-run=client -o yaml | kubectl apply -f -
   fi
   if ! kubectl get secret operator-oauth -n tailscale &>/dev/null; then
@@ -140,6 +142,16 @@ if [ -n "${TAILSCALE_CLIENT_ID}" ] && [ -n "${TAILSCALE_CLIENT_SECRET}" ]; then
   if kubectl get secret operator -n tailscale &>/dev/null; then
     kubectl get secret operator -n tailscale -o json >"$IDENTITY_BACKUP"
     echo "    Backed up existing operator identity."
+  fi
+
+  if ! kubectl get secret operator -n tailscale &>/dev/null; then
+    BACKUP_ROOT="${TAILSCALE_BACKUP_DIR:-${SCRIPT_DIR}/.runtime-backups/tailscale}"
+    echo "    ⚠ No existing tailscale/operator identity Secret found."
+    echo "      If this is a rebuilt cluster and you want to avoid a duplicate operator device,"
+    echo "      restore a previous backup before the operator starts: ./tailscale/restore-state.sh latest"
+    if [ -d "$BACKUP_ROOT" ]; then
+      echo "      Local backup root detected: ${BACKUP_ROOT}"
+    fi
   fi
 
   if ! kubectl get deployment operator -n tailscale &>/dev/null; then

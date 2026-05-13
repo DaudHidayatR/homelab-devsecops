@@ -19,3 +19,6 @@ plans/*
 docs/openbao-integration.md
 apps/rabbitmq/core/secret.yaml
 .commandcode
+
+# Runtime backups may contain Tailscale machine keys and OAuth secrets
+.runtime-backups/
