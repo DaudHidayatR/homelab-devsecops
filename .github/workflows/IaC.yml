@@ -239,18 +239,18 @@ jobs:
           kubectl apply -k clusters/kind
 
       - name: Reconcile Flux sources
-        run: flux reconcile source git flux-system --with-source
+        run: flux reconcile source git flux-system
 
       - name: Reconcile infrastructure
         run: |
-          flux reconcile kustomization infrastructure --with-source
+          flux reconcile kustomization infrastructure
           flux wait kustomization infrastructure \
             --for=condition=ready \
             --timeout=5m
 
       - name: Reconcile apps
         run: |
-          flux reconcile kustomization apps --with-source
+          flux reconcile kustomization apps
           flux wait kustomization apps \
             --for=condition=ready \
             --timeout=5m
