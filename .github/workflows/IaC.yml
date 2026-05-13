@@ -216,19 +216,41 @@ jobs:
       - name: Verify cluster connectivity
         run: kubectl cluster-info
 
+      - name: Install Flux controllers if missing
+        run: |
+          if ! kubectl get crd gitrepositories.source.toolkit.fluxcd.io >/dev/null 2>&1; then
+            echo "Flux CRDs not found. Installing Flux controllers..."
+            flux install
+          else
+            echo "Flux CRDs already installed."
+          fi
+          kubectl wait --for=condition=Available deployment/source-controller -n flux-system --timeout=180s
+          kubectl wait --for=condition=Available deployment/kustomize-controller -n flux-system --timeout=180s
+          kubectl wait --for=condition=Available deployment/helm-controller -n flux-system --timeout=180s
+
+      - name: Ensure Flux Git source and kustomizations
+        run: |
+          flux create source git flux-system \
+            --url=https://github.com/${{ github.repository }}.git \
+            --branch=main \
+            --interval=1m \
+            --export | kubectl apply -f -
+
+          kubectl apply -k clusters/kind
+
       - name: Reconcile Flux sources
-        run: flux reconcile source git flux-system
+        run: flux reconcile source git flux-system --with-source
 
       - name: Reconcile infrastructure
         run: |
-          flux reconcile kustomization infrastructure
+          flux reconcile kustomization infrastructure --with-source
           flux wait kustomization infrastructure \
             --for=condition=ready \
             --timeout=5m
 
       - name: Reconcile apps
         run: |
-          flux reconcile kustomization apps
+          flux reconcile kustomization apps --with-source
           flux wait kustomization apps \
             --for=condition=ready \
             --timeout=5m
