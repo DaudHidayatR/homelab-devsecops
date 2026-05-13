@@ -7,14 +7,9 @@ spec:
   interval: 30m
   path: ./infrastructure
   prune: true
-  wait: true
+  wait: false
   timeout: 5m
   retryInterval: 2m
   sourceRef:
     kind: GitRepository
     name: flux-system
-  healthChecks:
-    - apiVersion: helm.toolkit.fluxcd.io/v2
-      kind: HelmRelease
-      name: openbao
-      namespace: openbao
