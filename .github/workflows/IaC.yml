@@ -203,10 +203,13 @@ jobs:
         with:
           authkey: ${{ secrets.TS_AUTHKEY }}
 
-      - name: Install Flux CLI
-        run: |
-          curl -s https://fluxcd.io/install.sh | bash
-          flux version --client
+      - name: Setup Flux CLI
+        uses: fluxcd/flux2/action@main
+        with:
+          version: 'latest'
+
+      - name: Verify Flux CLI
+        run: flux version --client
 
       - name: Setup kubeconfig
         run: |
@@ -239,21 +242,13 @@ jobs:
           kubectl apply -k clusters/kind
 
       - name: Reconcile Flux sources
-        run: flux reconcile source git flux-system
+        run: flux reconcile source git flux-system --timeout=5m
 
       - name: Reconcile infrastructure
-        run: |
-          flux reconcile kustomization infrastructure
-          flux wait kustomization infrastructure \
-            --for=condition=ready \
-            --timeout=5m
+        run: flux reconcile kustomization infrastructure --timeout=10m
 
       - name: Reconcile apps
-        run: |
-          flux reconcile kustomization apps
-          flux wait kustomization apps \
-            --for=condition=ready \
-            --timeout=5m
+        run: flux reconcile kustomization apps --timeout=10m
 
       - name: Smoke test
         run: |
