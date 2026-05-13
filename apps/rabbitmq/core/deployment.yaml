@@ -43,10 +43,16 @@ spec:
         - containerPort: 15672
           name: management
         env:
-        - name: RABBITMQ_DEFAULT_USER_FILE
-          value: /etc/rabbitmq-secrets/RABBITMQ_DEFAULT_USER
-        - name: RABBITMQ_DEFAULT_PASS_FILE
-          value: /etc/rabbitmq-secrets/RABBITMQ_DEFAULT_PASS
+        - name: RABBITMQ_DEFAULT_USER
+          valueFrom:
+            secretKeyRef:
+              name: rabbitmq-credentials
+              key: RABBITMQ_DEFAULT_USER
+        - name: RABBITMQ_DEFAULT_PASS
+          valueFrom:
+            secretKeyRef:
+              name: rabbitmq-credentials
+              key: RABBITMQ_DEFAULT_PASS
         resources:
           requests:
             cpu: 200m
@@ -61,6 +67,7 @@ spec:
             - check_running
           initialDelaySeconds: 60
           periodSeconds: 30
+          timeoutSeconds: 10
         readinessProbe:
           exec:
             command:
@@ -68,14 +75,12 @@ spec:
             - ping
           initialDelaySeconds: 30
           periodSeconds: 10
+          timeoutSeconds: 10
         volumeMounts:
         - name: data
           mountPath: /var/lib/rabbitmq
         - name: tmp
           mountPath: /tmp
-        - name: rabbitmq-secrets
-          mountPath: /etc/rabbitmq-secrets
-          readOnly: true
       volumes:
       # emptyDir: ephemeral storage is intentional for this lab environment.
       # Messages are lost on pod restart. For production, replace with a PVC.
@@ -83,6 +88,3 @@ spec:
         emptyDir: {}
       - name: tmp
         emptyDir: {}
-      - name: rabbitmq-secrets
-        secret:
-          secretName: rabbitmq-credentials

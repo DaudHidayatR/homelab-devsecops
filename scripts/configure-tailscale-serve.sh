@@ -41,18 +41,13 @@ for POD in $PROXY_PODS; do
   echo ""
   echo "--- Checking $POD ---"
 
-  # Check if serve is already configured
+  # Check current serve configuration. We still determine the desired backend
+  # before deciding to skip, because multi-port services like RabbitMQ expose
+  # AMQP first and the HTTP management UI second.
   SERVE_STATUS=$(kubectl exec -n tailscale "$POD" -c tailscale -- \
     tailscale serve status 2>/dev/null || true)
 
-  if echo "$SERVE_STATUS" | grep -q "https://"; then
-    echo "  ✓ Already configured:"
-    while IFS= read -r line; do echo "    $line"; done <<< "$SERVE_STATUS"
-    SKIPPED=$((SKIPPED + 1))
-    continue
-  fi
-
-  echo "  Not configured. Determining backend URL..."
+  echo "  Determining backend URL..."
 
   # Get TS_DEST_IP from the pod's environment
   # shellcheck disable=SC2016
@@ -77,9 +72,27 @@ for POD in $PROXY_PODS; do
     continue
   fi
 
-  # Get the target port from the service
-  TARGET_PORT=$(kubectl get svc -n "$PARENT_NS" "$PARENT_SVC" \
-    -o jsonpath='{.spec.ports[0].port}' 2>/dev/null || true)
+  # Pick an HTTP-compatible service port for Tailscale Serve.
+  # Prefer explicit web/management ports before falling back to the first port.
+  TARGET_PORT=$(kubectl get svc -n "$PARENT_NS" "$PARENT_SVC" -o json 2>/dev/null | python3 -c "
+import json, sys
+svc = json.load(sys.stdin)
+ports = svc.get('spec', {}).get('ports', [])
+preferred_names = ('https', 'http', 'management', 'web', 'ui')
+for wanted in preferred_names:
+    for port in ports:
+        if port.get('name') == wanted:
+            print(port.get('port'))
+            raise SystemExit
+for port in ports:
+    name = port.get('name', '')
+    app_protocol = str(port.get('appProtocol', '')).lower()
+    if 'http' in name or 'http' in app_protocol:
+        print(port.get('port'))
+        raise SystemExit
+if ports:
+    print(ports[0].get('port'))
+" || true)
 
   if [ -z "$TARGET_PORT" ]; then
     echo "  ✗ Could not determine target port for $PARENT_SVC in $PARENT_NS. Skipping."
@@ -89,6 +102,18 @@ for POD in $PROXY_PODS; do
 
   BACKEND_URL="http://${DEST_IP}:${TARGET_PORT}"
   echo "  Backend: $BACKEND_URL"
+
+  if echo "$SERVE_STATUS" | grep -q "$BACKEND_URL"; then
+    echo "  ✓ Already configured:"
+    while IFS= read -r line; do echo "    $line"; done <<< "$SERVE_STATUS"
+    SKIPPED=$((SKIPPED + 1))
+    continue
+  fi
+
+  if echo "$SERVE_STATUS" | grep -q "https://"; then
+    echo "  Existing serve config differs; updating:"
+    while IFS= read -r line; do echo "    $line"; done <<< "$SERVE_STATUS"
+  fi
 
   # Configure tailscale serve
   echo "  Configuring tailscale serve..."

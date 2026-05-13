@@ -5,11 +5,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/config.env"
 
 echo "=== 1. Creating kind cluster (rootless) ==="
-# Substitute TAILSCALE_VPS_HOSTNAME in certSANs if configured
-if [ -n "${TAILSCALE_VPS_HOSTNAME:-}" ]; then
-  echo "    Patching kind/cluster.yaml certSANs with ${TAILSCALE_VPS_HOSTNAME}..."
-  sed -i "s/TAILSCALE_VPS_HOSTNAME_PLACEHOLDER/${TAILSCALE_VPS_HOSTNAME}/g" kind/cluster.yaml
-fi
 if kind get clusters | awk -v name="${CLUSTER_NAME}" '$0 == name {found=1} END {exit !found}'; then
   echo "    Kind cluster \"${CLUSTER_NAME}\" already exists, skipping creation."
   kubectl config use-context "$CLUSTER_CONTEXT" >/dev/null 2>&1 || true
@@ -102,9 +97,31 @@ else
   kubectl apply -k "${SCRIPT_DIR}/apps"
 fi
 
+echo "=== 4.5. Configuring Tailscale annotations on OpenBao ==="
+# The OpenBao Helm chart creates 5+ services, but we only want the main
+# 'openbao' Service exposed. Annotating server.service.annotations in
+# values.yaml would apply to ALL services, causing duplicate Tailscale proxy
+# pods. Instead, annotate only the main Service here.
+if kubectl get svc openbao -n openbao &>/dev/null; then
+  kubectl annotate svc openbao -n openbao \
+    tailscale.com/expose=true \
+    tailscale.com/serve=true \
+    --overwrite
+  echo "    ✓ OpenBao main Service annotated for Tailscale."
+else
+  echo "    ⚠ openbao Service not found — skipping annotation."
+fi
+
 echo "=== 5. Installing Tailscale Operator (optional) ==="
 if [ -n "${TAILSCALE_CLIENT_ID}" ] && [ -n "${TAILSCALE_CLIENT_SECRET}" ]; then
   if ! kubectl get namespace tailscale &>/dev/null; then
+    BACKUP_ROOT="${TAILSCALE_BACKUP_DIR:-${SCRIPT_DIR}/.runtime-backups/tailscale}"
+    if [ -d "$BACKUP_ROOT" ]; then
+      echo "    ⚠ tailscale namespace is missing, but local Tailscale backups exist under: ${BACKUP_ROOT}"
+      echo "      To preserve the previous operator device identity, restore before continuing with:"
+      echo "      ./tailscale/restore-state.sh latest"
+      echo "      Continuing without restore may create duplicate Tailscale devices."
+    fi
     kubectl create namespace tailscale --dry-run=client -o yaml | kubectl apply -f -
   fi
   if ! kubectl get secret operator-oauth -n tailscale &>/dev/null; then
@@ -114,6 +131,29 @@ if [ -n "${TAILSCALE_CLIENT_ID}" ] && [ -n "${TAILSCALE_CLIENT_SECRET}" ]; then
       --from-literal=client_id="${TAILSCALE_CLIENT_ID}" \
       --from-literal=client_secret="${TAILSCALE_CLIENT_SECRET}"
   fi
+
+  # Preserve operator machine identity across reinstalls.
+  # The k8s-operator stores its device identity (_machinekey, profile-*)
+  # in the Secret named by OPERATOR_SECRET (default: "operator"). If this
+  # Secret is lost (e.g. accidental deletion, namespace recreation) the
+  # operator re-registers with Tailscale using the same hostname, creating
+  # a duplicate device entry (tailscale-operator-1, -2, ...).
+  IDENTITY_BACKUP=$(mktemp)
+  if kubectl get secret operator -n tailscale &>/dev/null; then
+    kubectl get secret operator -n tailscale -o json >"$IDENTITY_BACKUP"
+    echo "    Backed up existing operator identity."
+  fi
+
+  if ! kubectl get secret operator -n tailscale &>/dev/null; then
+    BACKUP_ROOT="${TAILSCALE_BACKUP_DIR:-${SCRIPT_DIR}/.runtime-backups/tailscale}"
+    echo "    ⚠ No existing tailscale/operator identity Secret found."
+    echo "      If this is a rebuilt cluster and you want to avoid a duplicate operator device,"
+    echo "      restore a previous backup before the operator starts: ./tailscale/restore-state.sh latest"
+    if [ -d "$BACKUP_ROOT" ]; then
+      echo "      Local backup root detected: ${BACKUP_ROOT}"
+    fi
+  fi
+
   if ! kubectl get deployment operator -n tailscale &>/dev/null; then
     echo "    Installing Tailscale Kubernetes Operator..."
     kubectl apply -f https://raw.githubusercontent.com/tailscale/tailscale/v1.96.4/cmd/k8s-operator/deploy/manifests/operator.yaml
@@ -123,6 +163,31 @@ if [ -n "${TAILSCALE_CLIENT_ID}" ] && [ -n "${TAILSCALE_CLIENT_SECRET}" ]; then
   else
     echo "    Tailscale operator already installed."
   fi
+
+  # Restore operator identity if the Secret was wiped by the install manifest.
+  # This prevents duplicate device registrations in the Tailscale admin console.
+  if [ -s "$IDENTITY_BACKUP" ]; then
+    IDENTITY_KEYS=$(python3 -c "
+import json, sys
+with open('$IDENTITY_BACKUP') as f:
+    d = json.load(f)
+keys = [k for k in d.get('data',{}) if k.startswith('_machinekey') or k.startswith('_current-profile') or k.startswith('profile-')]
+print(' '.join(keys))" 2>/dev/null || true)
+    if [ -n "$IDENTITY_KEYS" ]; then
+      echo "    Restoring operator device identity to prevent duplicate..."
+      kubectl get secret operator -n tailscale -o json 2>/dev/null | python3 -c "
+import json, sys
+# Merge identity keys from backup into live secret
+backup = json.load(open('$IDENTITY_BACKUP'))
+live = json.load(sys.stdin)
+for k, v in backup.get('data', {}).items():
+    if k.startswith('_machinekey') or k.startswith('_current-profile') or k.startswith('profile-'):
+        live.setdefault('data', {})[k] = v
+json.dump(live, sys.stdout)" | kubectl replace -f - 2>/dev/null || true
+      echo "    ✓ Operator identity preserved."
+    fi
+  fi
+  rm -f "$IDENTITY_BACKUP"
 
   # Wait for proxy pods to be created by the operator
   echo "    Waiting for Tailscale proxy pods to be ready..."

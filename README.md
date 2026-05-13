@@ -235,11 +235,54 @@ Admin services are annotated for automatic tailnet exposure via the Tailscale Ku
 
    | Service | Tailnet URL |
    |---------|-------------|
-   | Headlamp | `https://headlamp-kube-system.<tailnet>.ts.net` |
-   | RabbitMQ | `https://rabbitmq-messaging.<tailnet>.ts.net` |
-   | OpenBao  | `https://openbao-openbao.<tailnet>.ts.net` |
+   | Headlamp | `https://kube-system-headlamp.<tailnet>.ts.net` |
+   | RabbitMQ | `https://messaging-rabbitmq.<tailnet>.ts.net` |
+   | OpenBao  | `https://openbao-openbao.<tailnet>.ts.net/ui/` |
 
 3. No port-forwarding, SSH tunnels, or public IPs required.
+
+### Safe redeploy, reboot, and recovery
+
+Use a non-destructive redeploy for normal app changes:
+
+```bash
+make redeploy
+```
+
+Do not use `make down && make up` for normal redeploys. `make down` deletes the kind cluster and can remove Kubernetes Tailscale identity state.
+
+If a full cluster rebuild is required, preserve the Tailscale Kubernetes identity:
+
+```bash
+make down
+./tailscale/restore-state.sh latest
+make up
+./scripts/configure-tailscale-serve.sh
+./tailscale/check-access.sh
+```
+
+If Tailscale devices were deleted manually in the Tailscale Admin Console, reset the stale Kubernetes identities and let the proxies register fresh:
+
+```bash
+./tailscale/reset-proxies.sh
+./tailscale/sign-proxies.sh
+./scripts/configure-tailscale-serve.sh
+./tailscale/check-access.sh
+```
+
+Tailnet Lock is enabled in this environment. Any newly registered Kubernetes proxy node must be signed before DNS/connectivity is fully available:
+
+```bash
+./tailscale/sign-proxies.sh
+```
+
+For a VPS reboot, the cluster should recover as long as the container runtime, kind node, and host Tailscale daemon restart normally. The in-cluster Tailscale Serve watcher re-applies Serve config after proxy pod restarts. Run this check after reboot:
+
+```bash
+./tailscale/check-access.sh
+```
+
+For a full VPS rebuild/recreate, also preserve the host Tailscale identity from `/var/lib/tailscale` before deleting the VPS. Otherwise the VPS itself becomes a new Tailscale device.
 
 ### Future Public Access
 

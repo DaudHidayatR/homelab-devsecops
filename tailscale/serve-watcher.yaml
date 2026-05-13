@@ -87,8 +87,8 @@ spec:
           type: RuntimeDefault
       containers:
         - name: watcher
-          image: bitnami/kubectl:1.32
-          imagePullPolicy: Always
+          image: bitnami/kubectl:latest
+          imagePullPolicy: IfNotPresent
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -111,14 +111,11 @@ spec:
                   POD_NAME=$(basename "$POD")
                   echo "  Checking $POD_NAME..."
 
-                  # Check if serve is configured
+                  # Check current serve configuration. Do not skip until the desired backend
+                  # is known: multi-port services such as RabbitMQ expose AMQP first and
+                  # the HTTP management UI second.
                   SERVE_STATUS=$(kubectl exec -n tailscale "$POD_NAME" -c tailscale -- \
                     tailscale serve status 2>/dev/null || true)
-
-                  if echo "$SERVE_STATUS" | grep -q "https://"; then
-                    echo "  ✓ $POD_NAME already configured"
-                    continue
-                  fi
 
                   echo "  Configuring $POD_NAME..."
 
@@ -140,8 +137,19 @@ spec:
                     continue
                   fi
 
-                  TARGET_PORT=$(kubectl get svc -n "$PARENT_NS" "$PARENT_SVC" \
-                    -o jsonpath='{.spec.ports[0].port}' 2>/dev/null || true)
+                  TARGET_PORT=""
+                  # Prefer ports that are safe for browser-based HTTPS Serve.
+                  for PORT_NAME in https http management web ui; do
+                    TARGET_PORT=$(kubectl get svc -n "$PARENT_NS" "$PARENT_SVC" \
+                      -o jsonpath="{.spec.ports[?(@.name=='${PORT_NAME}')].port}" 2>/dev/null || true)
+                    if [ -n "$TARGET_PORT" ]; then
+                      break
+                    fi
+                  done
+                  if [ -z "$TARGET_PORT" ]; then
+                    TARGET_PORT=$(kubectl get svc -n "$PARENT_NS" "$PARENT_SVC" \
+                      -o jsonpath='{.spec.ports[0].port}' 2>/dev/null || true)
+                  fi
                   if [ -z "$TARGET_PORT" ]; then
                     echo "  ✗ Could not get target port for $PARENT_SVC"
                     continue
@@ -149,6 +157,18 @@ spec:
 
                   BACKEND_URL="http://${DEST_IP}:${TARGET_PORT}"
                   echo "    Backend: $BACKEND_URL"
+
+                  if echo "$SERVE_STATUS" | grep -q "$BACKEND_URL"; then
+                    echo "  ✓ $POD_NAME already configured"
+                    continue
+                  fi
+
+                  if echo "$SERVE_STATUS" | grep -q "https://"; then
+                    echo "  Updating stale serve config:"
+                    printf '%s\n' "$SERVE_STATUS" | while IFS= read -r line; do
+                      echo "    $line"
+                    done
+                  fi
 
                   kubectl exec -n tailscale "$POD_NAME" -c tailscale -- \
                     tailscale serve --bg --set-path / "$BACKEND_URL" 2>&1 || true
