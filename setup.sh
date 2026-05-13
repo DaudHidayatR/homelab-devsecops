@@ -5,6 +5,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/config.env"
 
 echo "=== 1. Creating kind cluster (rootless) ==="
+# Substitute TAILSCALE_VPS_HOSTNAME in certSANs if configured
+if [ -n "${TAILSCALE_VPS_HOSTNAME:-}" ]; then
+  echo "    Patching kind/cluster.yaml certSANs with ${TAILSCALE_VPS_HOSTNAME}..."
+  sed -i "s/TAILSCALE_VPS_HOSTNAME_PLACEHOLDER/${TAILSCALE_VPS_HOSTNAME}/g" kind/cluster.yaml
+fi
 if kind get clusters | awk -v name="${CLUSTER_NAME}" '$0 == name {found=1} END {exit !found}'; then
   echo "    Kind cluster \"${CLUSTER_NAME}\" already exists, skipping creation."
   kubectl config use-context "$CLUSTER_CONTEXT" >/dev/null 2>&1 || true
@@ -41,7 +46,7 @@ if command -v flux >/dev/null 2>&1; then
       echo "    Bootstrapping Flux from GitHub..."
       flux bootstrap github \
         --owner="$GITHUB_USER" \
-        --repository=project-ssdlc-devsecops-boilerplate \
+        --repository=homelab-devsecops \
         --branch=main \
         --path=./clusters/kind \
         --personal
