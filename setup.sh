@@ -129,6 +129,19 @@ if [ -n "${TAILSCALE_CLIENT_ID}" ] && [ -n "${TAILSCALE_CLIENT_SECRET}" ]; then
       --from-literal=client_id="${TAILSCALE_CLIENT_ID}" \
       --from-literal=client_secret="${TAILSCALE_CLIENT_SECRET}"
   fi
+
+  # Preserve operator machine identity across reinstalls.
+  # The k8s-operator stores its device identity (_machinekey, profile-*)
+  # in the Secret named by OPERATOR_SECRET (default: "operator"). If this
+  # Secret is lost (e.g. accidental deletion, namespace recreation) the
+  # operator re-registers with Tailscale using the same hostname, creating
+  # a duplicate device entry (tailscale-operator-1, -2, ...).
+  IDENTITY_BACKUP=$(mktemp)
+  if kubectl get secret operator -n tailscale &>/dev/null; then
+    kubectl get secret operator -n tailscale -o json >"$IDENTITY_BACKUP"
+    echo "    Backed up existing operator identity."
+  fi
+
   if ! kubectl get deployment operator -n tailscale &>/dev/null; then
     echo "    Installing Tailscale Kubernetes Operator..."
     kubectl apply -f https://raw.githubusercontent.com/tailscale/tailscale/v1.96.4/cmd/k8s-operator/deploy/manifests/operator.yaml
@@ -138,6 +151,31 @@ if [ -n "${TAILSCALE_CLIENT_ID}" ] && [ -n "${TAILSCALE_CLIENT_SECRET}" ]; then
   else
     echo "    Tailscale operator already installed."
   fi
+
+  # Restore operator identity if the Secret was wiped by the install manifest.
+  # This prevents duplicate device registrations in the Tailscale admin console.
+  if [ -s "$IDENTITY_BACKUP" ]; then
+    IDENTITY_KEYS=$(python3 -c "
+import json, sys
+with open('$IDENTITY_BACKUP') as f:
+    d = json.load(f)
+keys = [k for k in d.get('data',{}) if k.startswith('_machinekey') or k.startswith('_current-profile') or k.startswith('profile-')]
+print(' '.join(keys))" 2>/dev/null || true)
+    if [ -n "$IDENTITY_KEYS" ]; then
+      echo "    Restoring operator device identity to prevent duplicate..."
+      kubectl get secret operator -n tailscale -o json 2>/dev/null | python3 -c "
+import json, sys
+# Merge identity keys from backup into live secret
+backup = json.load(open('$IDENTITY_BACKUP'))
+live = json.load(sys.stdin)
+for k, v in backup.get('data', {}).items():
+    if k.startswith('_machinekey') or k.startswith('_current-profile') or k.startswith('profile-'):
+        live.setdefault('data', {})[k] = v
+json.dump(live, sys.stdout)" | kubectl replace -f - 2>/dev/null || true
+      echo "    ✓ Operator identity preserved."
+    fi
+  fi
+  rm -f "$IDENTITY_BACKUP"
 
   # Wait for proxy pods to be created by the operator
   echo "    Waiting for Tailscale proxy pods to be ready..."
