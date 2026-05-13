@@ -102,6 +102,21 @@ else
   kubectl apply -k "${SCRIPT_DIR}/apps"
 fi
 
+echo "=== 4.5. Configuring Tailscale annotations on OpenBao ==="
+# The OpenBao Helm chart creates 5+ services, but we only want the main
+# 'openbao' Service exposed. Annotating server.service.annotations in
+# values.yaml would apply to ALL services, causing duplicate Tailscale proxy
+# pods. Instead, annotate only the main Service here.
+if kubectl get svc openbao -n openbao &>/dev/null; then
+  kubectl annotate svc openbao -n openbao \
+    tailscale.com/expose=true \
+    tailscale.com/serve=true \
+    --overwrite
+  echo "    ✓ OpenBao main Service annotated for Tailscale."
+else
+  echo "    ⚠ openbao Service not found — skipping annotation."
+fi
+
 echo "=== 5. Installing Tailscale Operator (optional) ==="
 if [ -n "${TAILSCALE_CLIENT_ID}" ] && [ -n "${TAILSCALE_CLIENT_SECRET}" ]; then
   if ! kubectl get namespace tailscale &>/dev/null; then

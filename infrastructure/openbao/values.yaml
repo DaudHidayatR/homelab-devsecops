@@ -18,9 +18,14 @@ server:
     tag: "2.5.2"
 
   service:
-    annotations:
-      tailscale.com/expose: "true"
-      tailscale.com/serve: "true"
+    # NOTE: Do NOT add tailscale.com/expose or tailscale.com/serve here!
+    # The OpenBao Helm chart applies server.service.annotations to ALL
+    # services it creates (openbao, openbao-active, openbao-standby,
+    # openbao-internal, openbao-ui), causing Tailscale operator to create
+    # duplicate proxy pods for each. Instead, annotate only the main
+    # 'openbao' Service manually after deployment:
+    #   kubectl annotate svc openbao -n openbao tailscale.com/expose=true tailscale.com/serve=true
+    annotations: {}
 
   updateStrategyType: RollingUpdate
 
