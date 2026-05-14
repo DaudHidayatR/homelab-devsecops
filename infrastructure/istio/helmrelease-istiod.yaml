@@ -17,11 +17,9 @@ spec:
         name: istio
         namespace: flux-system
   values:
-    profile: minimal
-    pilot:
-      cni:
-        enabled: true
-      resources:
-        requests:
-          cpu: 100m
-          memory: 256Mi
+    cni:
+      enabled: true
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
