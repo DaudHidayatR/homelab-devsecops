@@ -114,20 +114,30 @@ This project uses [Flux CD](https://fluxcd.io) to automatically reconcile cluste
 | `infrastructure/openbao/helmrepository.yaml` | Indexes the OpenBao Helm chart repository |
 | `infrastructure/openbao/helmrelease.yaml` | Declaratively installs/upgrades OpenBao |
 
-### Tag-Based Deployment Mode
+### Deployment Model: Semver-Based
 
-By default, Flux watches the `main` branch head (branch-based mode). To switch to **tag-based deployment**, set `FLUX_GIT_TAG` in `config.env`:
+This project uses **semver-based deployment via Flux**. Two independent systems control what gets deployed:
+
+| System | What it watches | Triggers deploy on `main` push? |
+|---|---|---|
+| **GitHub Actions CI/CD** | `v*` tag pushes only | No (deploy job is `skipped`) |
+| **Flux Source Controller** | Semver tags on Git repo | **No (watches semver, not branch)** |
+
+Flux's `GitRepository` is configured with `ref.semver.range: ">=0.0.0"` — it only reconciles when new semver tags appear. Pushing to `main` runs CI/CD validation but does **not** trigger deployment through either path.
+
+Set `FLUX_GIT_TAG` in `config.env` to the semver range:
 
 ```bash
-FLUX_GIT_TAG="v1.0.0"
+FLUX_GIT_TAG=">=0.0.0"
 ```
 
-In tag-based mode:
-- Merging to `main` does **not** trigger deployment — only pushing a matching semver tag does.
-- Instant rollback: `flux reconcile kustomization apps --source-ref=v1.0.0`
-- Feature branches are truly disposable after merge — only `main` remains.
+In semver mode:
+- Pushes to `main` run scanning only — no deploy.
+- Only `git tag v1.0.1 && git push origin v1.0.1` deploys.
+- Instant rollback: `flux reconcile source git flux-system --source-ref=v1.0.0`
+- Feature branches are disposable after PR merge — only `main` remains.
 
-Tag-based deployment is recommended for solo developers. See `config.env.example` for details.
+This is the recommended mode for a solo-dev GitOps workflow. If you need to change the range (e.g., to `">=1.0.0 <2.0.0"`), update `config.env` and re-run `make up`.
 
 ### Daily Operations
 
@@ -166,9 +176,10 @@ production:
 1. You push a `v*` tag → the [IaC Security Pipeline](.github/workflows/IaC.yml) runs.
 2. Security gates pass (lint, secrets, misconfig, policy).
 3. The deploy job connects the runner to the tailnet with `tag:ci-runner`.
-4. Flux is told to immediately reconcile `infrastructure`, then `apps`.
-5. The job waits for both Kustomizations to report `Ready`.
-6. A smoke test prints pod status and Flux resource health.
+4. The job patches Flux's `GitRepository` to `ref.semver.range: ">=0.0.0"` (one-time, idempotent), then applies Kustomizations.
+5. Flux's source controller detects the new semver tag and begins reconciliation.
+6. The job waits for both Kustomizations to report `Ready`.
+7. A smoke test prints pod status and Flux resource health.
 
 ### One-Time Setup
 

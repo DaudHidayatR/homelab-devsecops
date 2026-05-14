@@ -114,10 +114,10 @@ prune-branches-force: ## Delete local branches merged into main (non-interactive
 	@echo "Any branches not deleted above have unmerged changes on a fork/upstream."
 	@echo "Review them manually: git branch -a"
 
-tag: ## Tag current HEAD for Flux tag-based deploy (usage: make tag v=1.0.1)
+tag: ## Tag current HEAD and push for Flux semver deploy (usage: make tag v=0.0.1)
 	@if [ -z "$(v)" ]; then \
 		echo "Usage: make tag v=<version>"; \
-		echo "Example: make tag v=1.0.1"; \
+		echo "Example: make tag v=0.0.1"; \
 	else \
 		git tag -a "$(v)" -m "Deploy: $(v)" && git push origin "$(v)"; \
 	fi
@@ -148,4 +148,4 @@ help: ## Show this help
 	@echo "  make clean               - Remove generated reports"
 	@echo "  make prune-branches      - Show local branches merged into main"
 	@echo "  make prune-branches-force - Delete local branches merged into main"
-	@echo "  make tag v=<version>     - Tag current HEAD for Flux tag-based deploy"
+	@echo "  make tag v=<version>     - Tag current HEAD and push for Flux semver deploy"
