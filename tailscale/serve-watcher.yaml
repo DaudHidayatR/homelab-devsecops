@@ -68,6 +68,11 @@ kind: Deployment
 metadata:
   name: tailscale-serve-watcher
   namespace: tailscale
+  annotations:
+    checkov.io/skip1: >-
+      CKV_K8S_38=Service account token is required for the watcher to run
+      kubectl get/list/exec against Tailscale-managed proxy pods; RBAC is scoped
+      to service reads plus tailscale namespace pod access.
 spec:
   replicas: 1
   selector:
@@ -87,8 +92,8 @@ spec:
           type: RuntimeDefault
       containers:
         - name: watcher
-          image: bitnami/kubectl:latest
-          imagePullPolicy: IfNotPresent
+          image: bitnami/kubectl@sha256:e2b97dde9666986c61c56d49aae85a714b89b69392baa531438e74ec34096fb4
+          imagePullPolicy: Always
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true

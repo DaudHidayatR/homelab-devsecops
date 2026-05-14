@@ -14,6 +14,7 @@
 #   GITLEAKS_IMAGE — Gitleaks container image
 #   SEMGREP_IMAGE  — Semgrep container image
 #   SYFT_IMAGE     — Syft container image
+#   CHECKOV_IMAGE  — Checkov container image
 #   SEVERITY       — Severity threshold (default: HIGH,CRITICAL)
 
 set -uo pipefail
@@ -33,7 +34,7 @@ else
 fi
 
 # Verify required variables are set after sourcing
-: "${TRIVY_IMAGE:?}" "${GRYPE_IMAGE:?}" "${GITLEAKS_IMAGE:?}" "${SEMGREP_IMAGE:?}" "${SYFT_IMAGE:?}" "${SEVERITY:?}"
+: "${TRIVY_IMAGE:?}" "${GRYPE_IMAGE:?}" "${GITLEAKS_IMAGE:?}" "${SEMGREP_IMAGE:?}" "${SYFT_IMAGE:?}" "${CHECKOV_IMAGE:?}" "${SEVERITY:?}"
 
 SEMGREP_RULESETS="${SEMGREP_RULESETS:-p/default,p/owasp-top-ten,p/cwe-top-25,p/security-audit,p/secrets,p/supply-chain,p/docker,p/kubernetes}"
 SEMGREP_EXCLUDE_RULES="${SEMGREP_EXCLUDE_RULES:-yaml.kubernetes.security.run-as-non-root.run-as-non-root,yaml.kubernetes.security.allow-privilege-escalation-no-securitycontext.allow-privilege-escalation-no-securitycontext}"
@@ -176,6 +177,16 @@ scan_syft() {
     /src -o cyclonedx-json=/src/sbom-cyclonedx.json
 }
 
+scan_checkov() {
+  run_scanner "Checkov Kubernetes (SARIF)" "$CHECKOV_IMAGE" \
+    -d /src --framework kubernetes --quiet \
+    -o sarif --output-file-path /src/checkov-report.sarif
+
+  run_scanner "Checkov Kubernetes (JSON)" "$CHECKOV_IMAGE" \
+    -d /src --framework kubernetes --quiet \
+    -o json --output-file-path /src/checkov-report.json
+}
+
 # ─── VALIDATION ───
 validate_reports() {
   log_info "═════════════════════════════════════════════════════════════"
@@ -191,6 +202,8 @@ validate_reports() {
     semgrep-report.json
     semgrep-report.sarif
     semgrep-report.txt
+    checkov-report.json
+    checkov-report.sarif
     sbom-spdx.json
     sbom-cyclonedx.json
   )
@@ -231,6 +244,7 @@ case "${1:-}" in
   gitleaks)  scan_gitleaks ;;
   semgrep)   scan_semgrep ;;
   syft)      scan_syft ;;
+  checkov)   scan_checkov ;;
   validate)  validate_reports; exit $? ;;
   "")
     scan_trivy
@@ -238,12 +252,13 @@ case "${1:-}" in
     scan_grype
     scan_gitleaks
     scan_semgrep
+    scan_checkov
     scan_syft
     validate_reports
     exit $?
     ;;
   *)
-    echo "Usage: $0 [trivy|grype|gitleaks|semgrep|syft|kustomize|validate]" >&2
+    echo "Usage: $0 [trivy|grype|gitleaks|semgrep|checkov|syft|kustomize|validate]" >&2
     exit 1
     ;;
 esac

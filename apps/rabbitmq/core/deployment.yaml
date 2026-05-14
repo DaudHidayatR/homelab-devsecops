@@ -7,6 +7,14 @@ metadata:
     app: rabbitmq
     env: development
     owner: devsecops
+  annotations:
+    checkov.io/skip1: >-
+      CKV_K8S_40=The upstream RabbitMQ image expects UID/GID 999 for
+      runtime/data directory ownership; non-root execution is still enforced.
+    checkov.io/skip2: >-
+      CKV_K8S_35=The official RabbitMQ image bootstraps default credentials
+      from environment variables; migrate to definitions/config-file based
+      bootstrap before removing these env vars.
 spec:
   replicas: 1
   selector:
@@ -29,7 +37,7 @@ spec:
           type: RuntimeDefault
       containers:
       - name: rabbitmq
-        image: rabbitmq:3.13-management-alpine
+        image: rabbitmq:3.13-management-alpine@sha256:606d8c0d6b3c18d1da9afc53bc7cdb2a8d5486df91b5a9830e9e07626c9ae281
         imagePullPolicy: Always
         securityContext:
           allowPrivilegeEscalation: false

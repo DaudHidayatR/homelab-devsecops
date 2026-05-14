@@ -25,12 +25,12 @@ spec:
           type: RuntimeDefault
       containers:
       - name: nginx
-        image: nginx:1.30.1-alpine
+        image: nginx:1.30.1-alpine@sha256:5c5ea33561790f4d9fbcebb9ecfd4bbb781c760815b4d8b4f80b9d36c6da2659
         imagePullPolicy: Always
         securityContext:
           allowPrivilegeEscalation: false
           runAsNonRoot: true
-          runAsUser: 101
+          runAsUser: 10001
           readOnlyRootFilesystem: true
           capabilities:
             drop:
