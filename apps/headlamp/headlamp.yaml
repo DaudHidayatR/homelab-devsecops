@@ -50,7 +50,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: headlamp
-          image: ghcr.io/headlamp-k8s/headlamp:v0.30.0@sha256:PLACEHOLDER
+          image: ghcr.io/headlamp-k8s/headlamp:v0.30.0@sha256:5b46b8bd7a68deb762730ac086bad0a7473b9a926b3c5f3af8933ae05cad7a68
           imagePullPolicy: Always
           securityContext:
             allowPrivilegeEscalation: false
