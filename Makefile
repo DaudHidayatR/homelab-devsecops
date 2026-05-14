@@ -1,4 +1,4 @@
-.PHONY: up down scan tailscale tailscale-reset tailscale-sign tailscale-check status access-info help validate-kustomize sync redeploy flux-status flux-diff security sast secrets sca sbom iac validate clean
+.PHONY: up down scan tailscale tailscale-reset tailscale-sign tailscale-check status access-info help validate-kustomize sync redeploy flux-status flux-diff security sast secrets sca sbom iac validate clean prune-branches prune-branches-force tag
 
 up:
 	./setup.sh
@@ -98,6 +98,30 @@ clean: ## Remove generated reports
 	rm -f semgrep-report.json semgrep-report.sarif semgrep-report.txt
 	rm -f sbom-spdx.json sbom-cyclonedx.json
 
+prune-branches: ## Show local branches merged into main, prune deleted remote tracking refs
+	@echo "Fetching and pruning deleted remote branches..."
+	git fetch --prune
+	@echo ""
+	@echo "Local branches already merged into main:"
+	@git -c color.ui=never branch --merged main | grep -v '^\*' | grep -v 'main' || echo "  (none)"
+	@echo ""
+	@echo "Run 'make prune-branches-force' to delete them."
+
+prune-branches-force: ## Delete local branches merged into main (non-interactive)
+	@echo "Deleting local branches merged into main..."
+	git -c color.ui=never branch --merged main | grep -v '^\*' | grep -v 'main' | xargs -r git branch -d 2>/dev/null || true
+	@echo ""
+	@echo "Any branches not deleted above have unmerged changes on a fork/upstream."
+	@echo "Review them manually: git branch -a"
+
+tag: ## Tag current HEAD for Flux tag-based deploy (usage: make tag v=1.0.1)
+	@if [ -z "$(v)" ]; then \
+		echo "Usage: make tag v=<version>"; \
+		echo "Example: make tag v=1.0.1"; \
+	else \
+		git tag -a "$(v)" -m "Deploy: $(v)" && git push origin "$(v)"; \
+	fi
+
 help: ## Show this help
 	@echo "Available targets:"
 	@echo "  make up                  - Deploy the full kind cluster and all components"
@@ -122,3 +146,6 @@ help: ## Show this help
 	@echo "  make iac                 - Run IaC scan only (Kustomize)"
 	@echo "  make validate            - Validate report files exist"
 	@echo "  make clean               - Remove generated reports"
+	@echo "  make prune-branches      - Show local branches merged into main"
+	@echo "  make prune-branches-force - Delete local branches merged into main"
+	@echo "  make tag v=<version>     - Tag current HEAD for Flux tag-based deploy"
