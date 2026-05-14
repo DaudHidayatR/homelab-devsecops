@@ -84,7 +84,7 @@ if command -v flux >/dev/null 2>&1; then
       if [ -n "${FLUX_GIT_TAG:-}" ]; then
         echo "    Switching to semver-based deployment (range=${FLUX_GIT_TAG})..."
         kubectl patch gitrepository flux-system -n flux-system \
-          --type merge -p "{\"spec\":{\"ref\":{\"semver\":{\"range\":\"${FLUX_GIT_TAG}\"}},\"interval\":\"1m\"}}"
+          --type merge -p "{\"spec\":{\"ref\":{\"semver\":\"${FLUX_GIT_TAG}\"},\"interval\":\"1m\"}}"
         echo "    ✓ Flux now watches semver tags (${FLUX_GIT_TAG}) instead of branch 'main'."
         echo "    Pushes to main are ignored. Push a semver tag to deploy: make tag v=0.0.1"
       fi

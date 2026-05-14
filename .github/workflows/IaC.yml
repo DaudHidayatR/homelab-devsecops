@@ -238,7 +238,7 @@ jobs:
           # The source controller will only reconcile when new semver tags appear.
           # Pushes to main are IGNORED by Flux -- only v* tags trigger deployment.
           kubectl patch gitrepository flux-system -n flux-system \
-            --type merge -p '{"spec":{"ref":{"semver":{"range":">=0.0.0"}},"interval":"1m"}}'
+            --type merge -p '{"spec":{"ref":{"semver":">=0.0.0"},"interval":"1m"}}'
           echo "Flux now watches semver tags (>=0.0.0) -- main pushes do NOT trigger deploys."
           kubectl get gitrepository flux-system -n flux-system -o yaml
 
