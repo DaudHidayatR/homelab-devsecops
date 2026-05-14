@@ -232,19 +232,15 @@ jobs:
           kubectl wait --for=condition=Available deployment/kustomize-controller -n flux-system --timeout=180s
           kubectl wait --for=condition=Available deployment/helm-controller -n flux-system --timeout=180s
 
-      - name: Ensure Flux Git source and kustomizations
+      - name: Configure Flux Git source for semver tags
         run: |
-          if kubectl get gitrepository flux-system -n flux-system >/dev/null 2>&1; then
-            echo "Flux GitRepository already exists. Skipping to preserve bootstrap config."
-            kubectl get gitrepository flux-system -n flux-system -o yaml
-          else
-            echo "Flux GitRepository not found. Creating with tag-based source..."
-            flux create source git flux-system \
-              --url=https://github.com/${{ github.repository }}.git \
-              --tag="${{ github.ref_name }}" \
-              --interval=1m \
-              --export | kubectl apply -f -
-          fi
+          # Switch Flux from branch-based to semver-based.
+          # The source controller will only reconcile when new semver tags appear.
+          # Pushes to main are IGNORED by Flux -- only v* tags trigger deployment.
+          kubectl patch gitrepository flux-system -n flux-system \
+            --type merge -p '{"spec":{"ref":{"semver":{"range":">=0.0.0"}},"interval":"1m"}}'
+          echo "Flux now watches semver tags (>=0.0.0) -- main pushes do NOT trigger deploys."
+          kubectl get gitrepository flux-system -n flux-system -o yaml
 
           kubectl apply -k clusters/kind
 

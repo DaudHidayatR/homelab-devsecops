@@ -78,15 +78,15 @@ if command -v flux >/dev/null 2>&1; then
         --personal
       echo "    ✓ Flux bootstrapped. Cluster state is now managed by GitOps."
 
-      # Switch to tag-based deployment if FLUX_GIT_TAG is configured.
-      # Tag-based mode: Flux watches a specific tag instead of main branch head.
-      # Merging to main never triggers a deploy -- only pushing the configured tag does.
+      # Switch to semver-based deployment if FLUX_GIT_TAG is configured.
+      # Semver mode: Flux watches for new semver tags matching the range.
+      # Pushes to main are IGNORED by Flux -- only v* tags trigger deployment.
       if [ -n "${FLUX_GIT_TAG:-}" ]; then
-        echo "    Switching to tag-based deployment (FLUX_GIT_TAG=${FLUX_GIT_TAG})..."
+        echo "    Switching to semver-based deployment (range=${FLUX_GIT_TAG})..."
         kubectl patch gitrepository flux-system -n flux-system \
-          --type merge -p "{\"spec\":{\"ref\":{\"tag\":\"${FLUX_GIT_TAG}\"},\"interval\":\"1m\"}}"
-        echo "    ✓ Flux now watches tag '${FLUX_GIT_TAG}' instead of branch 'main'."
-        echo "    Push a new tag to deploy: make tag v=<version>"
+          --type merge -p "{\"spec\":{\"ref\":{\"semver\":{\"range\":\"${FLUX_GIT_TAG}\"}},\"interval\":\"1m\"}}"
+        echo "    ✓ Flux now watches semver tags (${FLUX_GIT_TAG}) instead of branch 'main'."
+        echo "    Pushes to main are ignored. Push a semver tag to deploy: make tag v=0.0.1"
       fi
     else
       echo "    GITHUB_TOKEN or GITHUB_USER not set."
