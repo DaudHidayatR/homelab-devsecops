@@ -16,7 +16,6 @@ sbom-*.json
 wiki/*
 raw/*
 plans/*
-docs/plans/*
 docs/openbao-integration.md
 apps/rabbitmq/core/secret.yaml
 .commandcode
