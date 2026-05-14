@@ -29,12 +29,14 @@ spec:
         imagePullPolicy: Always
         securityContext:
           allowPrivilegeEscalation: false
+          runAsNonRoot: true
+          runAsUser: 101
           readOnlyRootFilesystem: true
           capabilities:
             drop:
             - ALL
         ports:
-        - containerPort: 80
+        - containerPort: 8080
         resources:
           requests:
             cpu: 100m
@@ -45,16 +47,22 @@ spec:
         livenessProbe:
           httpGet:
             path: /
-            port: 80
+            port: 8080
           initialDelaySeconds: 10
           periodSeconds: 30
         readinessProbe:
           httpGet:
             path: /
-            port: 80
+            port: 8080
           initialDelaySeconds: 5
           periodSeconds: 10
         volumeMounts:
+        - name: nginx-config
+          mountPath: /etc/nginx/nginx.conf
+          subPath: nginx.conf
+        - name: nginx-config
+          mountPath: /etc/nginx/conf.d/default.conf
+          subPath: default.conf
         - name: tmp
           mountPath: /tmp
         - name: cache
@@ -62,6 +70,9 @@ spec:
         - name: run
           mountPath: /var/run
       volumes:
+      - name: nginx-config
+        configMap:
+          name: nginx-config
       - name: tmp
         emptyDir: {}
       - name: cache
