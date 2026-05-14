@@ -17,7 +17,7 @@ spec:
   healthChecks:
     - apiVersion: apps/v1
       kind: Deployment
-      name: nginx
+      name: sample-app
       namespace: demo
     - apiVersion: apps/v1
       kind: Deployment
