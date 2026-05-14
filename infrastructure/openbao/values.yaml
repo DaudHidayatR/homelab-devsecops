@@ -52,7 +52,7 @@ server:
 
   livenessProbe:
     enabled: true
-    path: "/v1/sys/health?standbyok=true"
+    path: "/v1/sys/health?standbyok=true&sealedcode=204&uninitcode=204"
     port: 8200
     scheme: HTTPS
     initialDelaySeconds: 60
