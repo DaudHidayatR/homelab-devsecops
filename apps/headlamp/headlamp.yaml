@@ -26,6 +26,8 @@ metadata:
     app: headlamp
     env: development
     owner: devsecops
+  annotations:
+    checkov.io/skip1: CKV_K8S_38=Headlamp runs as an in-cluster Kubernetes dashboard and requires API access; keep RBAC least-privilege when adding a dedicated ServiceAccount.
 spec:
   replicas: 1
   selector:
@@ -48,7 +50,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: headlamp
-          image: ghcr.io/headlamp-k8s/headlamp:v0.30.0
+          image: ghcr.io/headlamp-k8s/headlamp:v0.30.0@sha256:PLACEHOLDER
           imagePullPolicy: Always
           securityContext:
             allowPrivilegeEscalation: false

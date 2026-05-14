@@ -71,8 +71,9 @@ flux-diff:
 security: ## Run full security scan suite
 	@bash scripts/security-scan.sh
 
-sast: ## Run SAST only (Semgrep)
+sast: ## Run SAST only (Semgrep + Checkov)
 	@bash scripts/security-scan.sh semgrep
+	@bash scripts/security-scan.sh checkov
 
 secrets: ## Run secret detection only (GitLeaks)
 	@bash scripts/security-scan.sh gitleaks
@@ -96,6 +97,7 @@ clean: ## Remove generated reports
 	rm -f grype-report.json
 	rm -f gitleaks-report.json
 	rm -f semgrep-report.json semgrep-report.sarif semgrep-report.txt
+	rm -f checkov-report.json checkov-report.sarif
 	rm -f sbom-spdx.json sbom-cyclonedx.json
 
 prune-branches: ## Show local branches merged into main, prune deleted remote tracking refs

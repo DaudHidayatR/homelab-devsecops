@@ -377,6 +377,7 @@ This script generates:
 - `trivy-report.*` — raw filesystem scan (vulnerabilities, secrets, misconfigs)
 - `trivy-rendered.sarif` — rendered manifest scan (authoritative K8s policy check)
 - `semgrep-report.*` — static analysis findings
+- `checkov-report.*` — Kubernetes IaC policy findings that mirror GitHub code scanning alerts
 - `gitleaks-report.json` — secret detection
 - `grype-report.json` — alternative vulnerability scan
 - `sbom-*.json` — software bill of materials (SPDX + CycloneDX)
