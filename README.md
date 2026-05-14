@@ -52,6 +52,21 @@ Common workflows:
 
 Components are deployed via **Flux CD** when `GITHUB_TOKEN` and `GITHUB_USER` are configured. Flux continuously reconciles `infrastructure/` first, then `apps/` after infrastructure is ready. If Flux is not available, `setup.sh` falls back to applying `infrastructure/` then `apps/` sequentially via `kubectl apply -k`.
 
+## Branch Management
+
+GitHub's "Automatically delete head branches" is enabled on this repository. Every PR merge deletes the source branch automatically, keeping the branch list clean.
+
+### Local Cleanup
+
+Remove local tracking refs for deleted remote branches and delete merged local branches:
+```bash
+# Preview what would be deleted (safe, shows list only)
+make prune-branches
+
+# Delete local branches already merged into main
+make prune-branches-force
+```
+
 ## Versioning
 
 All component image versions are defined directly in their respective manifests. The canonical version reference is `config.env`, which documents the currently deployed versions and is consumed by scripts at runtime:
@@ -67,8 +82,13 @@ To upgrade a component, update both `config.env` and the image field in the corr
 
 Tag the repository after each validated deployment:
 ```bash
-git tag -a infra-v1.0 -m "Baseline deployment"
-git push origin infra-v1.0
+git tag -a v1.0.0 -m "Baseline deployment"
+git push origin v1.0.0
+```
+
+Or use the convenience Makefile target:
+```bash
+make tag v=1.0.1
 ```
 
 ## GitOps with Flux CD
@@ -93,6 +113,21 @@ This project uses [Flux CD](https://fluxcd.io) to automatically reconcile cluste
 | `clusters/kind/apps.yaml` | Reconciles the buildable `apps/` aggregate: demo app, RabbitMQ, and Headlamp |
 | `infrastructure/openbao/helmrepository.yaml` | Indexes the OpenBao Helm chart repository |
 | `infrastructure/openbao/helmrelease.yaml` | Declaratively installs/upgrades OpenBao |
+
+### Tag-Based Deployment Mode
+
+By default, Flux watches the `main` branch head (branch-based mode). To switch to **tag-based deployment**, set `FLUX_GIT_TAG` in `config.env`:
+
+```bash
+FLUX_GIT_TAG="v1.0.0"
+```
+
+In tag-based mode:
+- Merging to `main` does **not** trigger deployment — only pushing a matching semver tag does.
+- Instant rollback: `flux reconcile kustomization apps --source-ref=v1.0.0`
+- Feature branches are truly disposable after merge — only `main` remains.
+
+Tag-based deployment is recommended for solo developers. See `config.env.example` for details.
 
 ### Daily Operations
 
@@ -119,12 +154,16 @@ If you manually edit a resource (e.g., `kubectl edit deployment`), Flux will aut
 
 ## CI/CD Auto-Deploy
 
-Pushes to `main`/`master` trigger automated Flux reconciliation via a GitHub Actions
-runner connected to the VPS through Tailscale.
+Pushing a `v*` tag triggers the [IaC Security Pipeline](.github/workflows/IaC.yml) which runs
+security gates (lint, secrets, misconfig, policy), then deploys via Flux reconciliation
+through a GitHub Actions runner connected to the VPS over Tailscale.
+
+Pushes to `main` run validation/scanning only — **no deploy**. Only `v*` tags deploy to
+production:
 
 ### How It Works
 
-1. You push to `main` → the [IaC Security Pipeline](.github/workflows/IaC.yml) runs.
+1. You push a `v*` tag → the [IaC Security Pipeline](.github/workflows/IaC.yml) runs.
 2. Security gates pass (lint, secrets, misconfig, policy).
 3. The deploy job connects the runner to the tailnet with `tag:ci-runner`.
 4. Flux is told to immediately reconcile `infrastructure`, then `apps`.

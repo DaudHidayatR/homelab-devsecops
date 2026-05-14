@@ -77,6 +77,17 @@ if command -v flux >/dev/null 2>&1; then
         --path=./clusters/kind \
         --personal
       echo "    ✓ Flux bootstrapped. Cluster state is now managed by GitOps."
+
+      # Switch to tag-based deployment if FLUX_GIT_TAG is configured.
+      # Tag-based mode: Flux watches a specific tag instead of main branch head.
+      # Merging to main never triggers a deploy -- only pushing the configured tag does.
+      if [ -n "${FLUX_GIT_TAG:-}" ]; then
+        echo "    Switching to tag-based deployment (FLUX_GIT_TAG=${FLUX_GIT_TAG})..."
+        kubectl patch gitrepository flux-system -n flux-system \
+          --type merge -p "{\"spec\":{\"ref\":{\"tag\":\"${FLUX_GIT_TAG}\"},\"interval\":\"1m\"}}"
+        echo "    ✓ Flux now watches tag '${FLUX_GIT_TAG}' instead of branch 'main'."
+        echo "    Push a new tag to deploy: make tag v=<version>"
+      fi
     else
       echo "    GITHUB_TOKEN or GITHUB_USER not set."
       echo "    Set these in config.env or your environment to enable GitOps."
