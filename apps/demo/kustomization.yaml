@@ -6,5 +6,6 @@ namespace: demo
 resources:
   - sample-app/deployment.yaml
   - sample-app/service.yaml
+  - sample-app/nginx-configmap.yaml
   - networkpolicy.yaml
   - default-deny-ingress.yaml
