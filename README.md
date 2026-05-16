@@ -230,46 +230,79 @@ RABBITMQ_URL=amqp://admin:<password>@rabbitmq.messaging.svc.cluster.local:5672
 ```
 
 ## Accessing OpenBao (Secret Management)
-OpenBao is deployed to the `openbao` namespace via the official Helm chart using **single-node raft** storage.
+OpenBao is deployed to the `openbao` namespace via the official Helm chart using **single-node raft** storage and an HTTPS listener backed by the `openbao-tls` Secret.
 
-1. Port-forward the OpenBao service:
+### First-Run OpenBao Bootstrap
+
+OpenBao initialization and unseal are intentionally manual. This keeps root tokens and unseal keys out of Git while still letting Flux manage the chart, TLS mount, and External Secrets Operator controller.
+
+Fresh cluster sequence:
+
+1. Deploy the cluster and infrastructure:
    ```bash
-   kubectl port-forward -n openbao svc/openbao 8200:8200
+   make up
    ```
-2. Initialize OpenBao once:
+2. Wait for the OpenBao pod:
    ```bash
-   kubectl exec -it -n openbao openbao-0 -- bao operator init -key-shares=1 -key-threshold=1
+   kubectl wait --for=condition=Ready pod/openbao-0 -n openbao --timeout=300s
    ```
-3. Unseal OpenBao with the returned key:
+3. Initialize, unseal, enable KV v2, configure Kubernetes auth, create the ESO policy/role, and publish the OpenBao CA ConfigMap for ESO:
    ```bash
-   kubectl exec -it -n openbao openbao-0 -- bao operator unseal <unseal_key>
+   bash scripts/openbao-bootstrap.sh
    ```
-4. Open [https://localhost:8200](https://localhost:8200) in your browser (accept the self-signed certificate warning).
+   The script stores sensitive bootstrap material under `.runtime-backups/openbao/`:
+   - `.runtime-backups/openbao/root-token.txt`
+   - `.runtime-backups/openbao/unseal-key.txt`
 
-### Important Notes
-- **Back up the init output**: Store the root token and unseal key outside the cluster. Losing them means rebuilding the lab and recreating secrets.
-- **Data Persistence**: OpenBao uses raft storage backed by a PVC. Data survives pod restarts but is lost when the kind cluster is destroyed.
-- **No ingress in phase 1**: Access is intentionally limited to `kubectl port-forward` for a smaller, easier-to-audit setup.
+   These files are local secrets. Keep them out of Git, preserve `0600` permissions, and back them up securely if you need to keep the lab state.
 
-### Optional phase-1 bootstrap
-After unsealing, you can enable the minimum useful features from inside the pod:
+4. Store or migrate RabbitMQ credentials into OpenBao KV v2:
+   ```bash
+   bash scripts/openbao-store-rabbitmq.sh
+   ```
+5. Apply the ESO store resources after OpenBao has been bootstrapped:
+   ```bash
+   kubectl apply -k infrastructure/external-secrets/stores
+   ```
+   These resources are intentionally excluded from the default `infrastructure/external-secrets/` phase because they depend on manual OpenBao bootstrap.
+6. Verify the OpenBao-backed sync:
+   ```bash
+   kubectl get clustersecretstore openbao
+   kubectl get externalsecret rabbitmq-credentials -n messaging
+   kubectl get secret rabbitmq-credentials -n messaging
+   ```
+7. If RabbitMQ started before the secret existed, restart it after the secret syncs:
+   ```bash
+   kubectl rollout restart deployment/rabbitmq -n messaging
+   kubectl rollout status deployment/rabbitmq -n messaging --timeout=180s
+   ```
 
-```bash
-kubectl exec -it -n openbao openbao-0 -- sh
-export BAO_ADDR=https://127.0.0.1:8200
-export BAO_SKIP_VERIFY=true
-bao login <root_token>
-bao secrets enable -path=secret kv-v2
-bao auth enable kubernetes
-bao write auth/kubernetes/config kubernetes_host="https://$KUBERNETES_SERVICE_HOST:$KUBERNETES_SERVICE_PORT"
-```
+### Troubleshooting First Run
+
+- `ClusterSecretStore/openbao` is not ready: confirm OpenBao is unsealed and `scripts/openbao-bootstrap.sh` completed successfully.
+- ESO authentication fails: verify the bootstrap script configured `kubernetes_host=https://kubernetes.default.svc:443` and passed the Kubernetes service account CA as PEM.
+- `openbao-ca-cert` is missing: rerun `scripts/openbao-bootstrap.sh`; it creates the ConfigMap in the `external-secrets` namespace.
+- `rabbitmq-credentials` is missing: confirm `scripts/openbao-store-rabbitmq.sh` stored `secret/data/messaging/rabbitmq`, then reconcile the ESO store resources.
+- RabbitMQ is pending or crash-looping: create/sync `messaging/rabbitmq-credentials`, then restart the RabbitMQ deployment.
 
 ### Internal Access
 Applications in the cluster can reach OpenBao at:
 ```
 OPENBAO_ADDR=https://openbao.openbao.svc.cluster.local:8200
-BAO_SKIP_VERIFY=true  # self-signed cert in lab environment
 ```
+
+For local browser access:
+
+1. Port-forward the OpenBao service:
+   ```bash
+   kubectl port-forward -n openbao svc/openbao 8200:8200
+   ```
+2. Open [https://localhost:8200](https://localhost:8200) in your browser and accept the self-signed certificate warning.
+
+### Important Notes
+- **Back up bootstrap secrets carefully**: losing both the unseal key and recovery material means rebuilding the lab and recreating secrets.
+- **Data Persistence**: OpenBao uses raft storage backed by a PVC. Data survives pod restarts but is lost when the kind cluster is destroyed.
+- **TLS is enabled**: OpenBao serves HTTPS with a lab self-signed certificate generated by `setup.sh`. ESO trusts it through the `external-secrets/openbao-ca-cert` ConfigMap.
 
 ## Tailscale Private Access (Recommended)
 

@@ -250,25 +250,6 @@ jobs:
       - name: Reconcile infrastructure
         run: flux reconcile kustomization infrastructure --timeout=10m
 
-      - name: Ensure RabbitMQ credentials secret
-        env:
-          RABBITMQ_DEFAULT_PASS: ${{ secrets.RABBITMQ_DEFAULT_PASS }}
-        run: |
-          if kubectl get secret rabbitmq-credentials -n messaging >/dev/null 2>&1; then
-            echo "RabbitMQ credentials secret already exists."
-            exit 0
-          fi
-
-          password="${RABBITMQ_DEFAULT_PASS:-}"
-          if [ -z "$password" ]; then
-            password="$(openssl rand -base64 32 | tr -d '\n')"
-          fi
-
-          kubectl create secret generic rabbitmq-credentials \
-            --namespace=messaging \
-            --from-literal=RABBITMQ_DEFAULT_USER=admin \
-            --from-literal=RABBITMQ_DEFAULT_PASS="$password"
-
       - name: Reconcile apps
         run: flux reconcile kustomization apps --timeout=10m
 

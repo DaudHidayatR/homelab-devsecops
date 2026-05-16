@@ -6,10 +6,9 @@ metadata:
 spec:
   interval: 30m
   timeout: 10m
-  install:
-    disableWait: true
-  upgrade:
-    disableWait: true
+  # Wait for the chart rollout. The OpenBao readiness probe accepts sealed and
+  # uninitialized states, so Flux can still progress on first install while
+  # preserving normal Helm rollout ordering for this foundational service.
   chart:
     spec:
       chart: openbao

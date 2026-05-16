@@ -6,6 +6,7 @@ resources:
   - messaging.yaml
   - openbao.yaml
   - istio-system.yaml
+  - external-secrets.yaml
   - ci-rbac.yaml
 
 patches:
