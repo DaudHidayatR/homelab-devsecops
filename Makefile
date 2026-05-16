@@ -44,6 +44,8 @@ validate-kustomize:
 	kubectl kustomize infrastructure >/dev/null && echo "  ✓ infrastructure valid"
 	@echo "Validating infrastructure/openbao overlay..."
 	kubectl kustomize infrastructure/openbao >/dev/null && echo "  ✓ infrastructure/openbao valid"
+	@echo "Validating infrastructure/external-secrets overlay..."
+	kubectl kustomize infrastructure/external-secrets >/dev/null && echo "  ✓ infrastructure/external-secrets valid"
 
 sync:
 	@if command -v flux >/dev/null 2>&1 && kubectl get namespace flux-system >/dev/null 2>&1; then \

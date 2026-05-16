@@ -28,23 +28,16 @@ fi
 
 echo "=== 2. Istio will be deployed via Flux HelmRelease (infrastructure/istio/)"
 
-echo "=== 3. Deploying RabbitMQ credentials ==="
-# The namespace is declarative in infrastructure/namespaces/, but the
-# runtime-generated RabbitMQ secret must be created before Flux/app fallback
-# reconciliation starts. Apply the namespace idempotently first so fresh
-# clusters do not fail on a missing namespace.
-kubectl apply -f "${SCRIPT_DIR}/infrastructure/namespaces/messaging.yaml"
-
-# Generate RabbitMQ secret dynamically if it does not exist
-# (secret files are no longer committed to Git)
-if ! kubectl get secret rabbitmq-credentials -n "${RABBITMQ_NAMESPACE}" &>/dev/null; then
-  echo "Generating RabbitMQ credentials secret..."
-  RMQ_PASS=$(openssl rand -base64 32 | tr -d '\n')
-  kubectl create secret generic rabbitmq-credentials \
-    --namespace="${RABBITMQ_NAMESPACE}" \
-    --from-literal=RABBITMQ_DEFAULT_USER=admin \
-    --from-literal=RABBITMQ_DEFAULT_PASS="$RMQ_PASS"
-fi
+echo "=== 3. RabbitMQ credentials: now sourced from OpenBao via External Secrets Operator ==="
+echo "    The External Secrets Operator (ESO) syncs secret/data/messaging/rabbitmq"
+echo "    from OpenBao into the Kubernetes Secret messaging/rabbitmq-credentials."
+echo "    RabbitMQ Deployment consumes it via secretKeyRef (unchanged)."
+echo ""
+echo "    If this is a fresh cluster, after 'make up' completes, run:"
+echo "      bash scripts/openbao-bootstrap.sh"
+echo "      bash scripts/openbao-store-rabbitmq.sh"
+echo "    Then apply the ESO store resources to sync the secret:"
+echo "      kubectl apply -k infrastructure/external-secrets/stores"
 
 echo "=== 3.5. Generating OpenBao TLS certificate ==="
 kubectl apply -f "${SCRIPT_DIR}/infrastructure/namespaces/openbao.yaml"
