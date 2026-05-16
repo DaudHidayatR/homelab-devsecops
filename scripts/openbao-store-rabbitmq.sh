@@ -27,8 +27,7 @@ SECRET_PATH="secret/messaging/rabbitmq"
 
 _bao_exec() {
   kubectl exec -n "$OPENBAO_NS" "$OPENBAO_POD" -- sh -c "
-    export BAO_ADDR='https://127.0.0.1:8200'
-    export BAO_SKIP_VERIFY=true
+    export BAO_ADDR='http://127.0.0.1:8200'
     $*"
 }
 

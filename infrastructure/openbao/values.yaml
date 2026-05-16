@@ -5,7 +5,10 @@
 # Chart repo: openbao/openbao
 
 global:
-  tlsDisable: false
+  # OpenBao serves plain HTTP inside the cluster; Tailscale Serve terminates
+  # HTTPS for external tailnet access. Keep probes and bootstrap scripts on
+  # HTTP to avoid kubelet HTTPS-to-HTTP probe failures.
+  tlsDisable: true
 
 injector:
   enabled: false
@@ -44,7 +47,7 @@ server:
     enabled: true
     path: "/v1/sys/health?standbyok=true&sealedcode=204&uninitcode=204"
     port: 8200
-    scheme: HTTPS
+    scheme: HTTP
     initialDelaySeconds: 5
     periodSeconds: 5
     failureThreshold: 12
@@ -54,7 +57,7 @@ server:
     enabled: true
     path: "/v1/sys/health?standbyok=true&sealedcode=204&uninitcode=204"
     port: 8200
-    scheme: HTTPS
+    scheme: HTTP
     initialDelaySeconds: 60
     periodSeconds: 10
     failureThreshold: 6
@@ -71,14 +74,8 @@ server:
   standalone:
     enabled: false
 
-  volumes:
-    - name: tls
-      secret:
-        secretName: openbao-tls
-  volumeMounts:
-    - name: tls
-      mountPath: /vault/userconfig/tls
-      readOnly: true
+  # TLS cert is generated for future HTTPS enablement, but not mounted while
+  # the lab listener runs with tlsDisable=true.
 
   ha:
     enabled: true
@@ -90,11 +87,9 @@ server:
       ui = true
 
       listener "tcp" {
-        tls_disable = 0
+        tls_disable = 1
         address = "[::]:8200"
         cluster_address = "[::]:8201"
-        tls_cert_file = "/vault/userconfig/tls/tls.crt"
-        tls_key_file = "/vault/userconfig/tls/tls.key"
       }
 
       storage "raft" {
