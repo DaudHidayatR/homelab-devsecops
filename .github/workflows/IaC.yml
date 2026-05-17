@@ -9,16 +9,22 @@ on:
       - "**.tf"
       - "**.yaml"
       - "**.yml"
+      - "**.sh"
+      - "scripts/**"
       - "kustomization.*"
       - "Dockerfile*"
+      - ".github/workflows/**"
   pull_request:
     branches: [main]
     paths:
       - "**.tf"
       - "**.yaml"
       - "**.yml"
+      - "**.sh"
+      - "scripts/**"
       - "kustomization.*"
       - "Dockerfile*"
+      - ".github/workflows/**"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
