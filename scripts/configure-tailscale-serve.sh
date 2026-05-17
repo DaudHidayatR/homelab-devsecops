@@ -74,25 +74,42 @@ for POD in $PROXY_PODS; do
 
   # Pick an HTTP-compatible service port for Tailscale Serve.
   # Prefer explicit web/management ports before falling back to the first port.
-  TARGET_PORT=$(kubectl get svc -n "$PARENT_NS" "$PARENT_SVC" -o json 2>/dev/null | python3 -c "
+  # Return both scheme and port so HTTPS-only backends like OpenBao are not
+  # incorrectly contacted over plaintext HTTP.
+  BACKEND_TARGET=$(kubectl get svc -n "$PARENT_NS" "$PARENT_SVC" -o json 2>/dev/null | python3 -c "
 import json, sys
 svc = json.load(sys.stdin)
 ports = svc.get('spec', {}).get('ports', [])
 preferred_names = ('https', 'http', 'management', 'web', 'ui')
+
+def scheme_for(port):
+    name = str(port.get('name', '')).lower()
+    app_protocol = str(port.get('appProtocol', '')).lower()
+    if name == 'https' or app_protocol == 'https' or app_protocol == 'kubernetes.io/h2c':
+        return 'https' if app_protocol != 'kubernetes.io/h2c' else 'http'
+    if name == 'http' or app_protocol == 'http' or app_protocol == 'kubernetes.io/ws':
+        return 'http'
+    if 'https' in name or 'https' in app_protocol:
+        return 'https'
+    return 'http'
+
 for wanted in preferred_names:
     for port in ports:
         if port.get('name') == wanted:
-            print(port.get('port'))
+            print(scheme_for(port), port.get('port'))
             raise SystemExit
 for port in ports:
     name = port.get('name', '')
     app_protocol = str(port.get('appProtocol', '')).lower()
     if 'http' in name or 'http' in app_protocol:
-        print(port.get('port'))
+        print(scheme_for(port), port.get('port'))
         raise SystemExit
 if ports:
-    print(ports[0].get('port'))
+    print(scheme_for(ports[0]), ports[0].get('port'))
 " || true)
+
+  BACKEND_SCHEME=${BACKEND_TARGET%% *}
+  TARGET_PORT=${BACKEND_TARGET##* }
 
   if [ -z "$TARGET_PORT" ]; then
     echo "  ✗ Could not determine target port for $PARENT_SVC in $PARENT_NS. Skipping."
@@ -100,7 +117,7 @@ if ports:
     continue
   fi
 
-  BACKEND_URL="http://${DEST_IP}:${TARGET_PORT}"
+  BACKEND_URL="${BACKEND_SCHEME}://${DEST_IP}:${TARGET_PORT}"
   echo "  Backend: $BACKEND_URL"
 
   if echo "$SERVE_STATUS" | grep -q "$BACKEND_URL"; then
