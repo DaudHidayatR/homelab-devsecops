@@ -1,4 +1,4 @@
-.PHONY: up down scan tailscale tailscale-reset tailscale-sign tailscale-check status access-info help validate-kustomize sync redeploy flux-status flux-diff security sast secrets sca sbom iac validate clean prune-branches prune-branches-force tag
+.PHONY: up down scan tailscale tailscale-reset tailscale-sign tailscale-check status access-info help validate-kustomize sync redeploy flux-status flux-diff security sast secrets sca sbom iac validate clean prune-branches prune-branches-force tag openbao-policies
 
 up:
 	./setup.sh
@@ -26,6 +26,9 @@ status:
 
 access-info:
 	./scripts/show-access-info.sh
+
+openbao-policies:
+	bash scripts/openbao-apply-policies.sh
 
 validate-kustomize:
 	@echo "Validating cluster entrypoint overlay..."
@@ -138,6 +141,7 @@ help: ## Show this help
 	@echo "  make tailscale-check     - Check Tailscale DNS, Serve config, and HTTPS access"
 	@echo "  make status              - Show pod status across all namespaces"
 	@echo "  make access-info         - Show URLs and port-forward instructions"
+	@echo "  make openbao-policies    - Apply OpenBao policy-as-code files"
 	@echo "  make validate-kustomize  - Validate all Kustomize overlays"
 	@echo "  make sync                - Trigger immediate Flux reconciliation"
 	@echo "  make flux-status         - Show Flux resource status"

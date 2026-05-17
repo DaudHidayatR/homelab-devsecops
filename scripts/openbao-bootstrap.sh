@@ -13,6 +13,8 @@ set -eo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BACKUP_DIR="${SCRIPT_DIR}/../.runtime-backups/openbao"
+POLICY_DIR="${SCRIPT_DIR}/../policies/openbao"
+REMOTE_POLICY_DIR="/tmp/openbao-policies"
 OPENBAO_POD="openbao-0"
 OPENBAO_NS="openbao"
 ESO_NS="external-secrets"
@@ -167,23 +169,25 @@ fi
 
 echo "  Kubernetes auth configured."
 
-# ── 8. Create ESO policy ──────────────────────────────────────────────
+# ── 8. Apply OpenBao policies from repo source of truth ───────────────
 
 echo ""
-echo "=== Creating External Secrets Operator policy ==="
+echo "=== Applying OpenBao policy-as-code files ==="
 
-ESO_POLICY=$(cat <<'POLICY'
-path "secret/data/messaging/rabbitmq" {
-  capabilities = ["read"]
-}
-path "secret/metadata/messaging/rabbitmq" {
-  capabilities = ["read", "list"]
-}
-POLICY
-)
+for policy_file in admin.hcl eso-reader.hcl ci-deployer.hcl app-demo.hcl tailscale-operator.hcl; do
+  if [ ! -f "$POLICY_DIR/$policy_file" ]; then
+    echo "ERROR: Required policy file not found: $POLICY_DIR/$policy_file"
+    exit 1
+  fi
+done
 
-_bao_exec "echo '$ESO_POLICY' | bao policy write eso-reader -"
-echo "  Policy 'eso-reader' created."
+_bao_exec "rm -rf '$REMOTE_POLICY_DIR' && mkdir -p '$REMOTE_POLICY_DIR'"
+kubectl cp "$POLICY_DIR/." "${OPENBAO_NS}/${OPENBAO_POD}:${REMOTE_POLICY_DIR}"
+
+for policy in admin eso-reader ci-deployer app-demo tailscale-operator; do
+  _bao_exec "bao policy write '$policy' '${REMOTE_POLICY_DIR}/${policy}.hcl'"
+  echo "  Policy '$policy' applied."
+done
 
 # ── 9. Create ESO Kubernetes auth role ───────────────────────────────
 
@@ -209,7 +213,7 @@ echo "  Unseal key:  $BACKUP_DIR/unseal-key.txt"
 echo ""
 echo "  Secrets engine:  secret/ (KV v2)"
 echo "  Auth method:     kubernetes/"
-echo "  Policy:          eso-reader"
+echo "  Policies:        admin, eso-reader, ci-deployer, app-demo, tailscale-operator"
 echo "  Role:            kubernetes/eso-reader"
 echo "    → bound to SA: $ESO_SA in namespace $ESO_NS"
 echo ""
