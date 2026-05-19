@@ -20,4 +20,4 @@ spec:
       create: true
       name: external-secrets
     extraArgs:
-      enable-secret-access-gate: "true"
+      enable-flood-gate: "true"

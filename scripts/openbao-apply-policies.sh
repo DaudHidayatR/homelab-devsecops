@@ -2,12 +2,14 @@
 # Apply OpenBao policy-as-code files from policies/openbao/*.hcl.
 #
 # This script makes the repo the source of truth for OpenBao policies.
-# It is safe to re-run: bao policy write overwrites policies atomically.
+# It is safe to re-run: bao policy write overwrites policies atomically,
+# identity entities are updated in place, and auth roles are overwritten.
 #
 # Usage:
 #   bash scripts/openbao-apply-policies.sh
 #
 # Optional:
+#   OPENBAO_TOKEN=<token> bash scripts/openbao-apply-policies.sh
 #   GITHUB_REPOSITORY=owner/repo bash scripts/openbao-apply-policies.sh --enable-jwt
 
 set -eo pipefail
@@ -16,12 +18,25 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="${SCRIPT_DIR}/.."
 POLICY_DIR="${PROJECT_ROOT}/policies/openbao"
 BACKUP_DIR="${PROJECT_ROOT}/.runtime-backups/openbao"
+INIT_JSON="${PROJECT_ROOT}/openbao-init.json"
 OPENBAO_POD="openbao-0"
 OPENBAO_NS="openbao"
-ESO_NS="external-secrets"
-ESO_SA="external-secrets"
 REMOTE_POLICY_DIR="/tmp/openbao-policies"
 ENABLE_JWT="false"
+
+# Kubernetes auth/entity mapping table.
+# Format: policy_name|namespace|service_account|create_kubernetes_role|create_identity_alias
+#
+# Keep this explicit. A policy file alone does not imply a Kubernetes principal.
+# CI/CD uses optional GitHub OIDC JWT auth for ci-deployer; the Kubernetes role is
+# retained here for clusters that also run an in-cluster ci-deployer service account.
+POLICY_MAPPINGS=(
+  "eso-reader|external-secrets|external-secrets|true|true"
+  "app-demo|demo|default|true|true"
+  "tailscale-operator|tailscale|operator|true|true"
+  "ci-deployer|flux-system|ci-deployer|true|true"
+  "admin|kube-system|headlamp-admin|true|true"
+)
 
 if [ "${1:-}" = "--enable-jwt" ]; then
   ENABLE_JWT="true"
@@ -30,6 +45,7 @@ fi
 _bao_exec() {
   kubectl exec -n "$OPENBAO_NS" "$OPENBAO_POD" -- sh -c "
     export BAO_ADDR='http://127.0.0.1:8200'
+    export BAO_TOKEN='${ROOT_TOKEN}'
     $*"
 }
 
@@ -44,6 +60,89 @@ require_file() {
   fi
 }
 
+load_root_token() {
+  if [ -n "${OPENBAO_TOKEN:-}" ]; then
+    printf '%s' "$OPENBAO_TOKEN"
+    return
+  fi
+
+  if [ -f "$BACKUP_DIR/root-token.txt" ]; then
+    tr -d '\n' < "$BACKUP_DIR/root-token.txt"
+    return
+  fi
+
+  if [ -f "$INIT_JSON" ]; then
+    python3 - <<PY
+import json
+from pathlib import Path
+print(json.loads(Path("$INIT_JSON").read_text())["root_token"], end="")
+PY
+    return
+  fi
+
+  echo "ERROR: OpenBao token not provided." >&2
+  echo "Set OPENBAO_TOKEN, restore $BACKUP_DIR/root-token.txt, or provide $INIT_JSON." >&2
+  exit 1
+}
+
+policy_exists_in_repo() {
+  [ -f "$POLICY_DIR/$1.hcl" ]
+}
+
+ensure_entity_and_alias() {
+  local policy="$1"
+  local namespace="$2"
+  local service_account="$3"
+  local create_alias="$4"
+  local entity_id
+  local accessor
+  local alias_name
+
+  if _bao_exec "bao read identity/entity/name/'$policy' >/dev/null 2>&1"; then
+    entity_id=$(_bao_exec "bao read -field=id identity/entity/name/'$policy'")
+    _bao_exec "bao write identity/entity/id/'$entity_id' \
+      policies='$policy' \
+      metadata=managed_by='openbao-apply-policies' \
+      metadata=policy='$policy' \
+      metadata=service_account_namespace='$namespace' \
+      metadata=service_account_name='$service_account'" >/dev/null
+  else
+    entity_id=$(_bao_exec "bao write -field=id identity/entity \
+      name='$policy' \
+      policies='$policy' \
+      metadata=managed_by='openbao-apply-policies' \
+      metadata=policy='$policy' \
+      metadata=service_account_namespace='$namespace' \
+      metadata=service_account_name='$service_account'")
+  fi
+
+  echo "  Ensured entity: identity/entity/name/$policy"
+
+  if [ "$create_alias" = "true" ]; then
+    accessor=$(_bao_exec "bao read -field=accessor sys/auth/kubernetes")
+    alias_name="system:serviceaccount:${namespace}:${service_account}"
+    _bao_exec "bao write identity/entity-alias \
+      name='$alias_name' \
+      canonical_id='$entity_id' \
+      mount_accessor='$accessor'" >/dev/null || true
+    echo "  Ensured alias: $alias_name"
+  fi
+}
+
+ensure_kubernetes_role() {
+  local policy="$1"
+  local namespace="$2"
+  local service_account="$3"
+
+  _bao_exec "bao write auth/kubernetes/role/'$policy' \
+    bound_service_account_names='$service_account' \
+    bound_service_account_namespaces='$namespace' \
+    policies='$policy' \
+    ttl=1h" >/dev/null
+
+  echo "  Ensured Kubernetes role: auth/kubernetes/role/$policy -> ${namespace}/${service_account}"
+}
+
 echo "=== OpenBao Policy-as-Code Apply ==="
 echo ""
 
@@ -55,16 +154,16 @@ fi
 
 kubectl wait --for=condition=Ready "pod/${OPENBAO_POD}" -n "$OPENBAO_NS" --timeout=300s
 
-require_file "$BACKUP_DIR/root-token.txt"
 require_file "$POLICY_DIR/admin.hcl"
 require_file "$POLICY_DIR/eso-reader.hcl"
 require_file "$POLICY_DIR/ci-deployer.hcl"
 require_file "$POLICY_DIR/app-demo.hcl"
 require_file "$POLICY_DIR/tailscale-operator.hcl"
 
-ROOT_TOKEN=$(cat "$BACKUP_DIR/root-token.txt")
-_bao_exec "bao login '$ROOT_TOKEN'" >/dev/null
+ROOT_TOKEN="$(load_root_token)"
 
+# Verify authentication without printing or storing the token in OpenBao CLI config.
+_bao_exec "bao token lookup >/dev/null"
 echo "Authenticated to OpenBao."
 echo ""
 
@@ -74,20 +173,29 @@ kubectl cp "$POLICY_DIR/." "${OPENBAO_NS}/${OPENBAO_POD}:${REMOTE_POLICY_DIR}"
 echo "  Copied policies/openbao/*.hcl to ${OPENBAO_POD}:${REMOTE_POLICY_DIR}"
 echo ""
 
-echo "=== Applying policies ==="
-for policy in admin eso-reader ci-deployer app-demo tailscale-operator; do
-  _bao_exec "bao policy write '$policy' '${REMOTE_POLICY_DIR}/${policy}.hcl'"
+echo "=== Applying policies from repo ==="
+while IFS= read -r policy_file; do
+  policy="$(basename "$policy_file" .hcl)"
+  _bao_exec "bao policy write '$policy' '${REMOTE_POLICY_DIR}/${policy}.hcl'" >/dev/null
   echo "  Applied policy: $policy"
-done
+done < <(find "$POLICY_DIR" -maxdepth 1 -type f -name '*.hcl' | sort)
 echo ""
 
-echo "=== Ensuring Kubernetes auth role for ESO ==="
-_bao_exec "bao write auth/kubernetes/role/eso-reader \
-  bound_service_account_names='$ESO_SA' \
-  bound_service_account_namespaces='$ESO_NS' \
-  policies=eso-reader \
-  ttl=1h"
-echo "  Ensured role: auth/kubernetes/role/eso-reader"
+echo "=== Ensuring mapped Kubernetes roles, entities, and aliases ==="
+for mapping in "${POLICY_MAPPINGS[@]}"; do
+  IFS='|' read -r policy namespace service_account create_role create_alias <<< "$mapping"
+
+  if ! policy_exists_in_repo "$policy"; then
+    echo "  Skipping mapping for '$policy': $POLICY_DIR/$policy.hcl not found."
+    continue
+  fi
+
+  if [ "$create_role" = "true" ]; then
+    ensure_kubernetes_role "$policy" "$namespace" "$service_account"
+  fi
+
+  ensure_entity_and_alias "$policy" "$namespace" "$service_account" "$create_alias"
+done
 echo ""
 
 if [ "$ENABLE_JWT" = "true" ]; then
@@ -106,7 +214,7 @@ if [ "$ENABLE_JWT" = "true" ]; then
 
   _bao_exec "bao write auth/jwt/config \
     oidc_discovery_url='https://token.actions.githubusercontent.com' \
-    bound_issuer='https://token.actions.githubusercontent.com'"
+    bound_issuer='https://token.actions.githubusercontent.com'" >/dev/null
 
   BOUND_CLAIMS="{\"sub\":\"repo:${GITHUB_REPOSITORY}:ref:refs/tags/v*\"}"
   _bao_exec "bao write auth/jwt/role/ci-deployer \
@@ -115,7 +223,7 @@ if [ "$ENABLE_JWT" = "true" ]; then
     bound_claims_type='glob' \
     bound_claims='${BOUND_CLAIMS}' \
     policies='ci-deployer' \
-    ttl='15m'"
+    ttl='15m'" >/dev/null
   echo "  Ensured role: auth/jwt/role/ci-deployer for repo ${GITHUB_REPOSITORY} tag releases."
   echo ""
 else
@@ -125,6 +233,13 @@ else
 fi
 
 echo "=== Verification ==="
+echo "Policies:"
 _bao_exec "bao policy list"
+echo ""
+echo "Kubernetes roles:"
+_bao_exec "bao list auth/kubernetes/role"
+echo ""
+echo "Entities:"
+_bao_exec "bao list identity/entity/name"
 echo ""
 echo "OpenBao policy-as-code apply complete."
