@@ -28,3 +28,7 @@ path "secret/data/ci/deploy" {
 path "secret/metadata/ci/deploy" {
   capabilities = ["read", "list"]
 }
+
+path "identity/entity/*" {
+  capabilities = ["read", "list"]
+}

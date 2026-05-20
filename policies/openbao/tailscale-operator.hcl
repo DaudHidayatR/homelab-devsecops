@@ -8,3 +8,7 @@ path "secret/data/tailscale/operator-oauth" {
 path "secret/metadata/tailscale/operator-oauth" {
   capabilities = ["read", "list"]
 }
+
+path "identity/entity/*" {
+  capabilities = ["read", "list"]
+}
