@@ -12,3 +12,7 @@ path "secret/metadata/ci/deploy" {
 path "sys/seal-status" {
   capabilities = ["read"]
 }
+
+path "identity/entity/*" {
+  capabilities = ["read", "list"]
+}

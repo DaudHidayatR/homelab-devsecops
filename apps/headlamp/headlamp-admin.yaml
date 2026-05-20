@@ -27,6 +27,9 @@ rules:
   - apiGroups: ["policy"]
     resources: ["poddisruptionbudgets"]
     verbs: ["get", "list", "watch"]
+  - apiGroups: ["metrics.k8s.io"]
+    resources: ["nodes", "pods"]
+    verbs: ["get", "list", "watch"]
   - nonResourceURLs: ["/api", "/api/*", "/version", "/healthz", "/metrics", "/openapi/v2", "/openapi/v3"]
     verbs: ["get"]
 ---

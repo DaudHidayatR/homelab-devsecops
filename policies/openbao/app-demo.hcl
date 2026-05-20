@@ -8,3 +8,7 @@ path "secret/data/demo/sample-app" {
 path "secret/metadata/demo/sample-app" {
   capabilities = ["read", "list"]
 }
+
+path "identity/entity/*" {
+  capabilities = ["read", "list"]
+}
