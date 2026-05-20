@@ -24,6 +24,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "$PROJECT_ROOT" || exit 1
 
+# Clean up stale output from previous runs (Checkov v3+ creates directories)
+rm -rf "$PROJECT_ROOT/checkov-json" "$PROJECT_ROOT/checkov-sarif"
+
 # Source config.env (required — single source of truth)
 if [ -f "$PROJECT_ROOT/config.env" ]; then
   # shellcheck source=/dev/null
@@ -165,8 +168,20 @@ scan_semgrep() {
   run_scanner "Semgrep (SARIF)" "$SEMGREP_IMAGE" \
     "${SEMGREP_ARGS[@]}" --sarif --output /src/semgrep-report.sarif /src
 
-  run_scanner "Semgrep (Text)" "$SEMGREP_IMAGE" \
-    "${SEMGREP_ARGS[@]}" --output /src/semgrep-report.txt /src
+  # Semgrep's text findings go to stdout, the TUI progress table goes to stderr.
+  # When there are 0 findings, stdout is empty. Capture both streams so the text
+  # report is always non-empty (contains at minimum the scan summary from stderr).
+  log_info "Running Semgrep (Text) ..."
+  if "$RUNTIME" run --rm \
+    -v "${PROJECT_ROOT}:/src${VOL_SUFFIX}" \
+    -w /src \
+    "$SEMGREP_IMAGE" \
+    "${SEMGREP_ARGS[@]}" --text /src \
+    > "$PROJECT_ROOT/semgrep-report.txt" 2>&1; then
+    log_ok "Semgrep (Text) completed"
+  else
+    log_warn "Semgrep (Text) exited with non-zero code (findings or error) — report file will be validated below."
+  fi
 }
 
 scan_syft() {
@@ -178,13 +193,24 @@ scan_syft() {
 }
 
 scan_checkov() {
+  # Checkov v3+ treats --output-file-path as a directory, writing files inside it.
+  # We use subdirectories as output targets to avoid the directory-vs-file conflict,
+  # then flatten and clean up.
   run_scanner "Checkov Kubernetes (SARIF)" "$CHECKOV_IMAGE" \
     -d /src --framework kubernetes --quiet \
-    -o sarif --output-file-path /src/checkov-report.sarif
+    -o sarif --output-file-path /src/checkov-sarif
+  if [ -f "$PROJECT_ROOT/checkov-sarif/results_sarif.sarif" ]; then
+    mv "$PROJECT_ROOT/checkov-sarif/results_sarif.sarif" "$PROJECT_ROOT/checkov-report.sarif"
+    rm -rf "$PROJECT_ROOT/checkov-sarif"
+  fi
 
   run_scanner "Checkov Kubernetes (JSON)" "$CHECKOV_IMAGE" \
     -d /src --framework kubernetes --quiet \
-    -o json --output-file-path /src/checkov-report.json
+    -o json --output-file-path /src/checkov-json
+  if [ -f "$PROJECT_ROOT/checkov-json/results_json.json" ]; then
+    mv "$PROJECT_ROOT/checkov-json/results_json.json" "$PROJECT_ROOT/checkov-report.json"
+    rm -rf "$PROJECT_ROOT/checkov-json"
+  fi
 }
 
 # ─── VALIDATION ───
