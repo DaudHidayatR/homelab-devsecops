@@ -122,7 +122,33 @@ else
   echo "  KV v2 enabled at secret/."
 fi
 
-# ── 6. Enable Kubernetes auth method ──────────────────────────────────
+# ── 6. Enable SSH secrets engine for signed certificates ──────────────
+
+if _bao_exec_quiet "bao secrets list -format=json" | python3 -c "import json,sys; d=json.load(sys.stdin); print('ssh-client-signer/' in d)" 2>/dev/null | grep -q True; then
+  echo ""
+  echo "=== SSH client signer already enabled ==="
+else
+  echo ""
+  echo "=== Enabling SSH secrets engine at ssh-client-signer/ ==="
+  _bao_exec "bao secrets enable -path=ssh-client-signer ssh"
+  echo "  SSH client signer enabled."
+fi
+
+# Generate SSH CA keypair if not already present.
+SSH_CA_EXISTS=$(_bao_exec_quiet "bao read -field=public_key ssh-client-signer/config/ca" 2>/dev/null || true)
+if [ -n "$SSH_CA_EXISTS" ]; then
+  echo "  SSH CA keypair already exists."
+else
+  echo "=== Generating SSH CA keypair ==="
+  _bao_exec "bao write ssh-client-signer/config/ca generate_signing_key=true"
+  echo "  SSH CA keypair generated."
+  SSH_PUB=$(_bao_exec "bao read -field=public_key ssh-client-signer/config/ca")
+  echo "$SSH_PUB" > "$BACKUP_DIR/ssh-client-signer-ca.pub"
+  chmod 644 "$BACKUP_DIR/ssh-client-signer-ca.pub"
+  echo "  CA public key saved to: $BACKUP_DIR/ssh-client-signer-ca.pub"
+fi
+
+# ── 7. Enable Kubernetes auth method ──────────────────────────────────
 
 if _bao_exec_quiet "bao auth list -format=json" | python3 -c "import json,sys; d=json.load(sys.stdin); print('kubernetes/' in d)" 2>/dev/null | grep -q True; then
   echo ""
@@ -134,7 +160,7 @@ else
   echo "  Kubernetes auth enabled."
 fi
 
-# ── 7. Configure Kubernetes auth ──────────────────────────────────────
+# ── 8. Configure Kubernetes auth ──────────────────────────────────────
 
 echo ""
 echo "=== Configuring Kubernetes auth ==="
@@ -169,27 +195,110 @@ fi
 
 echo "  Kubernetes auth configured."
 
-# ── 8. Apply OpenBao policies from repo source of truth ───────────────
+# ── 9. Enable userpass and AppRole auth methods ───────────────────────
+
+if _bao_exec_quiet "bao auth list -format=json" | python3 -c "import json,sys; d=json.load(sys.stdin); print('userpass/' in d)" 2>/dev/null | grep -q True; then
+  echo ""
+  echo "=== Userpass auth already enabled ==="
+else
+  echo ""
+  echo "=== Enabling userpass auth method ==="
+  _bao_exec "bao auth enable userpass"
+  echo "  Userpass auth enabled."
+fi
+
+if _bao_exec_quiet "bao auth list -format=json" | python3 -c "import json,sys; d=json.load(sys.stdin); print('approle/' in d)" 2>/dev/null | grep -q True; then
+  echo ""
+  echo "=== AppRole auth already enabled ==="
+else
+  echo ""
+  echo "=== Enabling AppRole auth method ==="
+  _bao_exec "bao auth enable approle"
+  echo "  AppRole auth enabled."
+fi
+
+# ── 10. Enable audit logging when path is writable ─────────────────────
+
+if _bao_exec_quiet "bao audit list -format=json" | python3 -c "import json,sys; d=json.load(sys.stdin); print('file/' in d)" 2>/dev/null | grep -q True; then
+  echo ""
+  echo "=== File audit logging already enabled ==="
+else
+  echo ""
+  echo "=== Checking audit log path ==="
+  if _bao_exec "mkdir -p /vault/audit && test -w /vault/audit" >/dev/null 2>&1; then
+    echo "  /vault/audit is writable. Enabling file audit device."
+    _bao_exec "bao audit enable file file_path=/vault/audit/audit.log"
+    echo "  File audit logging enabled at /vault/audit/audit.log."
+  else
+    echo "  WARNING: /vault/audit is not writable in the OpenBao pod."
+    echo "  Skipping file audit enablement. Add a writable audit volume and re-run bootstrap."
+  fi
+fi
+
+# ── 11. Apply OpenBao policies from repo source of truth ───────────────
 
 echo ""
 echo "=== Applying OpenBao policy-as-code files ==="
 
-for policy_file in admin.hcl eso-reader.hcl ci-deployer.hcl app-demo.hcl tailscale-operator.hcl; do
-  if [ ! -f "$POLICY_DIR/$policy_file" ]; then
-    echo "ERROR: Required policy file not found: $POLICY_DIR/$policy_file"
-    exit 1
-  fi
-done
+mapfile -t POLICY_FILES < <(find "$POLICY_DIR" -maxdepth 1 -type f -name '*.hcl' | sort)
+if [ "${#POLICY_FILES[@]}" -eq 0 ]; then
+  echo "ERROR: No policy files found in $POLICY_DIR"
+  exit 1
+fi
 
 _bao_exec "rm -rf '$REMOTE_POLICY_DIR' && mkdir -p '$REMOTE_POLICY_DIR'"
 kubectl cp "$POLICY_DIR/." "${OPENBAO_NS}/${OPENBAO_POD}:${REMOTE_POLICY_DIR}"
 
-for policy in admin eso-reader ci-deployer app-demo tailscale-operator; do
+for policy_file in "${POLICY_FILES[@]}"; do
+  policy="$(basename "$policy_file" .hcl)"
   _bao_exec "bao policy write '$policy' '${REMOTE_POLICY_DIR}/${policy}.hcl'"
   echo "  Policy '$policy' applied."
 done
 
-# ── 9. Create ESO Kubernetes auth role ───────────────────────────────
+# ── 12. Seed safe KV hierarchy ────────────────────────────────────────
+
+echo ""
+echo "=== Seeding safe KV hierarchy ==="
+_bao_exec "bao kv put secret/common/public/cluster-info _seeded=true managed_by=openbao-bootstrap" >/dev/null
+_bao_exec "bao kv put secret/common/public/ca-public _seeded=true managed_by=openbao-bootstrap" >/dev/null
+if ! _bao_exec "bao kv get secret/apps/demo/sample-app >/dev/null 2>&1"; then
+  _bao_exec "bao kv put secret/apps/demo/sample-app _seeded=true managed_by=openbao-bootstrap" >/dev/null
+fi
+echo "  Seeded common/public paths and demo placeholder."
+
+# ── 13. Optional default admin user and AppRole ───────────────────────
+
+if [ "${OPENBAO_CREATE_DEFAULT_ADMIN:-false}" = "true" ]; then
+  echo ""
+  echo "=== Ensuring default openbao-admin user ==="
+  ADMIN_PASSWORD_FILE="$BACKUP_DIR/openbao-admin-password.txt"
+  if [ -f "$ADMIN_PASSWORD_FILE" ]; then
+    ADMIN_PASSWORD="$(tr -d '\n' < "$ADMIN_PASSWORD_FILE")"
+  else
+    ADMIN_PASSWORD="$(openssl rand -base64 32)"
+    echo "$ADMIN_PASSWORD" > "$ADMIN_PASSWORD_FILE"
+    chmod 600 "$ADMIN_PASSWORD_FILE"
+  fi
+  _bao_exec "bao write auth/userpass/users/openbao-admin password='$ADMIN_PASSWORD' policies=admin token_ttl=1h token_max_ttl=4h" >/dev/null
+  echo "  Default admin user configured. Password file: $ADMIN_PASSWORD_FILE"
+else
+  echo ""
+  echo "=== Skipping default openbao-admin user ==="
+  echo "  Set OPENBAO_CREATE_DEFAULT_ADMIN=true to create it during bootstrap."
+fi
+
+if [ "${OPENBAO_CREATE_DEFAULT_APPROLE:-false}" = "true" ]; then
+  echo ""
+  echo "=== Ensuring default ci-robot AppRole ==="
+  _bao_exec "bao write auth/approle/role/ci-robot token_policies=ci-deployer token_ttl=30m token_max_ttl=2h secret_id_ttl=30m secret_id_num_uses=1" >/dev/null
+  echo "  Default ci-robot AppRole configured. Generate wrapped SecretID with scripts/openbao-create-approle.sh."
+else
+  echo ""
+  echo "=== Skipping default ci-robot AppRole ==="
+  echo "  Set OPENBAO_CREATE_DEFAULT_APPROLE=true to create it during bootstrap."
+fi
+
+# ── 14. Create ESO Kubernetes auth role ───────────────────────────────
 
 echo ""
 echo "=== Creating ESO Kubernetes auth role ==="
@@ -202,7 +311,7 @@ _bao_exec "bao write auth/kubernetes/role/eso-reader \
 
 echo "  Role 'eso-reader' created (SA: $ESO_SA, NS: $ESO_NS)."
 
-# ── 10. Summary ──────────────────────────────────────────────────────
+# ── 11. Summary ──────────────────────────────────────────────────────
 
 echo ""
 echo "═══════════════════════════════════════════════"
@@ -212,10 +321,15 @@ echo "  Root token:  $BACKUP_DIR/root-token.txt"
 echo "  Unseal key:  $BACKUP_DIR/unseal-key.txt"
 echo ""
 echo "  Secrets engine:  secret/ (KV v2)"
-echo "  Auth method:     kubernetes/"
-echo "  Policies:        admin, eso-reader, ci-deployer, app-demo, tailscale-operator"
+echo "  Auth methods:    kubernetes/, userpass/, approle/"
+echo "  Policies:        dynamically applied from policies/openbao/*.hcl"
 echo "  Role:            kubernetes/eso-reader"
 echo "    → bound to SA: $ESO_SA in namespace $ESO_NS"
+echo ""
+echo "  Optional next steps:"
+echo "    - Create admin user: OPENBAO_CREATE_DEFAULT_ADMIN=true bash scripts/openbao-bootstrap.sh"
+echo "    - Create AppRole:    bash scripts/openbao-create-approle.sh ci-robot ci-deployer"
+echo "    - After verifying a non-root admin login, secure or revoke the root token manually."
 echo ""
 echo "  Next steps:"
 echo "    1. Run: bash scripts/openbao-store-rabbitmq.sh"

@@ -4,6 +4,11 @@ set -eo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/config.env"
 
+DEPLOYMENT_MODE="not-started"
+FLUX_SEMVER_MODE="disabled"
+TAILSCALE_MODE="skipped"
+OPENBAO_POST_SETUP_REQUIRED="yes"
+
 echo "=== 1. Creating kind cluster (rootless) ==="
 if kind get clusters | awk -v name="${CLUSTER_NAME}" '$0 == name {found=1} END {exit !found}'; then
   echo "    Kind cluster \"${CLUSTER_NAME}\" already exists, skipping creation."
@@ -70,6 +75,7 @@ if command -v flux >/dev/null 2>&1; then
         --path=./clusters/kind \
         --personal
       echo "    ✓ Flux bootstrapped. Cluster state is now managed by GitOps."
+      DEPLOYMENT_MODE="Flux GitOps"
 
       # Switch to semver-based deployment if FLUX_GIT_TAG is configured.
       # Semver mode: Flux watches for new semver tags matching the range.
@@ -79,24 +85,28 @@ if command -v flux >/dev/null 2>&1; then
         kubectl patch gitrepository flux-system -n flux-system \
           --type merge -p "{\"spec\":{\"ref\":{\"semver\":\"${FLUX_GIT_TAG}\"},\"interval\":\"1m\"}}"
         echo "    ✓ Flux now watches semver tags (${FLUX_GIT_TAG}) instead of branch 'main'."
+        FLUX_SEMVER_MODE="enabled (${FLUX_GIT_TAG})"
         echo "    Pushes to main are ignored. Push a semver tag to deploy: make tag v=0.0.1"
       fi
     else
       echo "    GITHUB_TOKEN or GITHUB_USER not set."
       echo "    Set these in config.env or your environment to enable GitOps."
       echo "    Falling back to kubectl apply -k..."
+      DEPLOYMENT_MODE="direct kubectl apply fallback (missing GitHub credentials)"
       kubectl apply -k "${SCRIPT_DIR}/infrastructure"
       kubectl apply -k "${SCRIPT_DIR}/apps"
     fi
   else
     echo "    ⚠ Flux pre-flight checks failed."
     echo "    Falling back to kubectl apply -k..."
+    DEPLOYMENT_MODE="direct kubectl apply fallback (Flux preflight failed)"
     kubectl apply -k "${SCRIPT_DIR}/infrastructure"
     kubectl apply -k "${SCRIPT_DIR}/apps"
   fi
 else
   echo "    Flux CLI not found. Install from https://fluxcd.io/flux/installation/"
   echo "    Falling back to kubectl apply -k..."
+  DEPLOYMENT_MODE="direct kubectl apply fallback (Flux CLI unavailable)"
   kubectl apply -k "${SCRIPT_DIR}/infrastructure"
   kubectl apply -k "${SCRIPT_DIR}/apps"
 fi
@@ -118,6 +128,7 @@ fi
 
 echo "=== 5. Installing Tailscale Operator (optional) ==="
 if [ -n "${TAILSCALE_CLIENT_ID}" ] && [ -n "${TAILSCALE_CLIENT_SECRET}" ]; then
+  TAILSCALE_MODE="enabled"
   if ! kubectl get namespace tailscale &>/dev/null; then
     BACKUP_ROOT="${TAILSCALE_BACKUP_DIR:-${SCRIPT_DIR}/.runtime-backups/tailscale}"
     if [ -d "$BACKUP_ROOT" ]; then
@@ -213,9 +224,24 @@ json.dump(live, sys.stdout)" | kubectl replace -f - 2>/dev/null || true
   kubectl apply -f "${SCRIPT_DIR}/tailscale/serve-watcher.yaml"
   echo "    ✓ Serve watcher deployed."
 else
+  TAILSCALE_MODE="skipped (missing OAuth credentials)"
   echo "    TAILSCALE_CLIENT_ID or TAILSCALE_CLIENT_SECRET not set."
   echo "    Skipping Tailscale operator. Set credentials in config.env to enable."
 fi
+
+echo ""
+echo "=== Setup Summary ==="
+echo "    Deployment mode: ${DEPLOYMENT_MODE}"
+echo "    Flux semver mode: ${FLUX_SEMVER_MODE}"
+echo "    Tailscale mode: ${TAILSCALE_MODE}"
+echo "    OpenBao post-setup required: ${OPENBAO_POST_SETUP_REQUIRED}"
+echo ""
+echo "    If this is a fresh OpenBao install, run these after the OpenBao pod is ready:"
+echo "      kubectl wait --for=condition=Ready pod/openbao-0 -n openbao --timeout=300s"
+echo "      bash scripts/openbao-bootstrap.sh"
+echo "      bash scripts/openbao-store-rabbitmq.sh"
+echo "      kubectl apply -k infrastructure/external-secrets/stores"
+echo ""
 
 # SRP: access instructions live in their own script; setup.sh ends at infrastructure readiness.
 "${SCRIPT_DIR}/scripts/show-access-info.sh"

@@ -1,209 +1,265 @@
-# Scripts
+# infra/kind/scripts
 
-This directory contains standalone automation scripts. **They are intentionally NOT committed to this repository.**
+Operational helper scripts for the local kind DevSecOps lab.
 
-These are universal tools designed to be **copied into any Git repository** where you need to purge secrets from history. Do not commit them here — copy them to the target repository and run them there.
+These scripts are committed project tooling. They support OpenBao bootstrap and access management, External Secrets handoff, Tailscale Serve configuration, access discovery, security scanning, and emergency Git secret cleanup.
 
-| Script | Purpose | Interactive |
-|--------|---------|-------------|
-| `auto-purge-secret.sh` | Universal Git secret history purge with **Gitleaks** discovery | Yes |
-| `purge-secret-history.sh` | Basic Git history purge (legacy) | Minimal |
-| `purge-config.example.toml` | Example config for `auto-purge-secret.sh` | — |
+## Recommended fresh-cluster flow
 
----
-
-## How to Use in Another Repository
+Run commands from `infra/kind` unless noted otherwise.
 
 ```bash
-# 1. Copy the script into the repository that has the secret
-cp /path/to/project-ssdlc-devsecops-boilerplate/infra/kind/scripts/auto-purge-secret.sh /path/to/target-repo/auto-purge-secret.sh
-chmod +x /path/to/target-repo/auto-purge-secret.sh
+# 1. Create/update the local kind cluster and deploy infrastructure/apps.
+make up
 
-# 2. Run it inside the target repository
-cd /path/to/target-repo
-./auto-purge-secret.sh --auto
+# 2. Wait for OpenBao to be ready.
+kubectl wait --for=condition=Ready pod/openbao-0 -n openbao --timeout=300s
+
+# 3. Initialize/unseal OpenBao and configure baseline engines/auth/policies.
+bash scripts/openbao-bootstrap.sh
+
+# 4. Reconcile OpenBao policies and identity mappings when needed.
+make openbao-policies
+
+# 5. Store application secrets in OpenBao.
+bash scripts/openbao-store-rabbitmq.sh
+
+# 6. Apply ESO resources that depend on bootstrapped OpenBao.
+kubectl apply -k infrastructure/external-secrets/stores
+
+# 7. Verify generated Kubernetes secrets and access endpoints.
+kubectl get clustersecretstore openbao
+kubectl get externalsecret rabbitmq-credentials -n messaging
+kubectl get secret rabbitmq-credentials -n messaging
+make access-info
 ```
 
----
+## OpenBao lifecycle
 
-## Quick Start: `auto-purge-secret.sh`
+`make up` deploys OpenBao, but it intentionally does **not** initialize or unseal OpenBao. Root tokens, unseal keys, AppRole wrapping tokens, and user passwords must stay outside Git.
 
-A **universal**, repo-agnostic script that removes secrets from Git history. It works in **any Git repository** — not just this project.
+Lifecycle:
 
-### Requirements
+1. `setup.sh` / `make up` deploys OpenBao and creates the `openbao-tls` Kubernetes Secret used by lab access integration.
+2. `openbao-bootstrap.sh` initializes OpenBao if needed, unseals it, enables required engines/auth methods, writes baseline policies, and creates the ESO Kubernetes auth role.
+3. `openbao-apply-policies.sh` is the repeatable policy reconciliation entrypoint for `policies/openbao/*.hcl` and explicit Kubernetes identity mappings.
+4. `openbao-create-user.sh` creates human `userpass` users and optional per-user SSH signing roles.
+5. `openbao-create-approle.sh` creates machine/CI AppRoles with response-wrapped single-use SecretIDs.
+6. `openbao-store-rabbitmq.sh` writes RabbitMQ credentials into OpenBao KV v2.
+7. `kubectl apply -k infrastructure/external-secrets/stores` creates the `ClusterSecretStore` and `ExternalSecret` resources that sync from OpenBao into Kubernetes Secrets.
 
-| Requirement | Version | Install Command |
-|-------------|---------|-----------------|
-| Bash | >= 4.0 | usually pre-installed |
-| Git | >= 2.24 | `apt install git` / `brew install git` |
-| `git-filter-repo` | latest | `pip install git-filter-repo` |
-| Gitleaks (optional) | >= 8.0 | `brew install gitleaks` or use Docker |
-| GPG or SSH key (optional) | any | only needed if you want to re-sign commits |
+### Default user and AppRole behavior
 
-### Install Dependencies
+No standing OpenBao human user or machine AppRole is required by default.
+
+Recommended explicit creation:
 
 ```bash
-# macOS
-brew install git gitleaks
-pip install git-filter-repo
-
-# Ubuntu / Debian
-sudo apt update && sudo apt install git
-pip install git-filter-repo
-# Gitleaks: download from https://github.com/gitleaks/gitleaks/releases
-
-# Or use Docker for Gitleaks (no local install needed)
-docker pull zricethezav/gitleaks:latest
+make openbao-create-user USER=alice PASSWORD='change-me' POLICY=default-user SSH=true
+make openbao-create-approle ROLE=ci-robot POLICY=ci-deployer
 ```
 
-### Usage
-
-#### 1. Auto-detect secrets and purge
+Optional bootstrap defaults are opt-in only:
 
 ```bash
-chmod +x scripts/auto-purge-secret.sh
-./scripts/auto-purge-secret.sh --auto
+OPENBAO_CREATE_DEFAULT_ADMIN=true bash scripts/openbao-bootstrap.sh
+OPENBAO_CREATE_DEFAULT_APPROLE=true bash scripts/openbao-bootstrap.sh
 ```
 
-The script will:
-1. Run Gitleaks to find leaked secrets.
-2. Ask you to confirm which files to purge.
-3. Create a backup clone.
-4. Rewrite Git history with `git-filter-repo`.
-5. Detect signed commits and offer re-signing.
-6. Validate with Gitleaks again.
-7. Prompt before force-pushing.
+Use these flags only when you intentionally want bootstrap to create default credentials. Prefer named users/AppRoles for normal operation.
 
-#### 2. Purge specific files
+### Sensitive local outputs
+
+The OpenBao scripts may write sensitive material below:
+
+```text
+.runtime-backups/openbao/
+```
+
+Examples include root token backup, unseal key backup, AppRole RoleID files, and wrapped SecretID tokens. Keep this directory out of Git, preserve restrictive permissions, and back it up securely if the lab state matters.
+
+## Script catalog
+
+| Script | Phase | Purpose | Safe to rerun | Requires OpenBao token/root backup | Creates or stores secrets | Verification |
+|---|---|---|---:|---:|---:|---|
+| `openbao-bootstrap.sh` | First-run OpenBao | Initialize/unseal OpenBao; enable KV v2, SSH signer, Kubernetes auth, userpass, AppRole; apply baseline policies; create ESO role | Mostly | Uses generated/restored root material | Yes | `make openbao-status` |
+| `openbao-apply-policies.sh` | OpenBao reconciliation | Apply `policies/openbao/*.hcl` and explicit Kubernetes auth/entity/alias mappings | Yes | Yes, or `OPENBAO_TOKEN` | No | `kubectl exec -n openbao openbao-0 -- sh -c 'BAO_ADDR=http://127.0.0.1:8200 bao policy list'` |
+| `openbao-create-user.sh` | Human access | Create/update userpass user, identity entity/alias, profile metadata, optional SSH role | Yes | Yes, or admin token | Yes | `make openbao-status` then login with userpass |
+| `openbao-create-approle.sh` | Machine/CI access | Create/update AppRole with short-lived token and response-wrapped single-use SecretID | Yes | Yes, or admin token | Yes | `ls .runtime-backups/openbao/approles/` |
+| `openbao-store-rabbitmq.sh` | App secret seed | Store RabbitMQ credentials at `secret/data/messaging/rabbitmq` | Yes | Yes, or admin token | Yes | `kubectl get secret rabbitmq-credentials -n messaging` after ESO sync |
+| `openbao-status.sh` | Diagnostics | Show pod, seal, auth, policy, and backup status | Yes | Optional | No | Script output |
+| `configure-tailscale-serve.sh` | Tailscale access | Configure Tailscale Serve on Kubernetes proxy pods | Yes | No | No | `./tailscale/check-access.sh` |
+| `show-access-info.sh` | Access info | Print local and tailnet URLs plus post-setup reminders | Yes | No | No | Script output |
+| `security-scan.sh` | Security validation | Run local scanner suite through containers and validate generated reports | Yes | No | No | `make validate` |
+| `auto-purge-secret.sh` | Emergency Git cleanup | Rewrite Git history to remove leaked secrets, with Gitleaks-assisted discovery | Destructive; use with care | No | No | Gitleaks clean scan |
+| `purge-secret-history.sh` | Legacy Git cleanup | Basic older secret-history purge helper | Destructive; use with care | No | No | Manual history verification |
+
+## OpenBao script details
+
+### `openbao-bootstrap.sh`
+
+Use after `make up` has deployed the OpenBao pod.
 
 ```bash
-./scripts/auto-purge-secret.sh \
-  --target-file "config/credentials.json" \
-  --target-file ".env.production"
+bash scripts/openbao-bootstrap.sh
 ```
 
-#### 3. Use a config file
+Main effects:
 
-Copy and edit the example config:
+- waits for `openbao-0` in namespace `openbao`
+- initializes OpenBao when uninitialized
+- stores local root/unseal material under `.runtime-backups/openbao/`
+- unseals OpenBao
+- enables KV v2 at `secret/`
+- enables SSH signer at `ssh-client-signer/`
+- enables Kubernetes auth, userpass auth, and AppRole auth
+- applies baseline OpenBao policies
+- creates Kubernetes auth role(s) needed by ESO
+- optionally creates default admin/AppRole only when explicit env flags are set
+
+Useful environment flags:
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `OPENBAO_CREATE_DEFAULT_ADMIN` | unset/false | Create an opt-in default admin user during bootstrap |
+| `OPENBAO_CREATE_DEFAULT_APPROLE` | unset/false | Create an opt-in default `ci-robot` AppRole during bootstrap |
+
+### `openbao-apply-policies.sh`
+
+Use for repeatable policy-as-code reconciliation.
 
 ```bash
-cp scripts/purge-config.example.toml my-config.toml
-# edit my-config.toml
-./scripts/auto-purge-secret.sh --config my-config.toml
+make openbao-policies
+# or
+OPENBAO_TOKEN=<token> bash scripts/openbao-apply-policies.sh
 ```
 
-#### 4. Non-interactive mode (CI / automation)
+Important behavior:
+
+- `policies/openbao/*.hcl` is the policy source of truth.
+- Kubernetes auth roles and identity aliases are driven by an explicit mapping table inside the script.
+- A policy file alone does not automatically create a Kubernetes principal.
+- Re-running is expected after policy changes.
+
+### `openbao-create-user.sh`
+
+Use for human access.
 
 ```bash
-./scripts/auto-purge-secret.sh \
-  --auto \
-  --yes \
-  --force-push \
-  --backup-dir /mnt/backups/git-purge
+make openbao-create-user USER=alice PASSWORD='change-me' POLICY=default-user SSH=true
+# or
+bash scripts/openbao-create-user.sh alice 'change-me' default-user --ssh
 ```
 
-> **Warning:** `--yes` skips all confirmation prompts. Use only in trusted automation.
+Behavior:
 
-#### 5. Preview without changing anything
+- creates/updates a userpass user
+- attaches the requested policy, defaulting to `default-user` through the Makefile
+- creates/updates an identity entity and userpass alias
+- stores non-sensitive profile metadata in KV
+- optionally creates a per-user SSH signing role when `SSH=true` / `--ssh` is used
+
+### `openbao-create-approle.sh`
+
+Use for machine, CI, or automation access.
 
 ```bash
-./scripts/auto-purge-secret.sh --auto --dry-run
-```
+make openbao-create-approle ROLE=ci-robot POLICY=ci-deployer
+# or
+bash scripts/openbao-create-approle.sh ci-robot ci-deployer
 ```
 
-### Non-Interactive CI/CD Mode
+Behavior:
+
+- requires the target policy to already exist
+- creates/updates the AppRole
+- prints/saves RoleID metadata
+- creates a response-wrapped, single-use SecretID
+- stores local output under `.runtime-backups/openbao/approles/`
+
+Treat wrapped SecretID tokens as secrets. They are time-bound and should be delivered only to the intended automation system.
+
+### `openbao-store-rabbitmq.sh`
+
+Use after OpenBao is initialized/unsealed and before applying the ESO store resources.
 
 ```bash
-./scripts/auto-purge-secret.sh --auto --yes --force-push --no-backup
+bash scripts/openbao-store-rabbitmq.sh
+kubectl apply -k infrastructure/external-secrets/stores
 ```
 
----
+Ownership model:
 
-## Full Options Reference
+- OpenBao owns the source secret at `secret/data/messaging/rabbitmq`.
+- ESO owns the sync definition through `ClusterSecretStore` and `ExternalSecret`.
+- Kubernetes owns the generated `messaging/rabbitmq-credentials` Secret as an output.
 
+Do not manually edit generated Kubernetes Secrets for long-term changes; update OpenBao and let ESO reconcile.
+
+## ESO troubleshooting
+
+| Symptom | Check |
+|---|---|
+| `ClusterSecretStore/openbao` is not ready | Confirm OpenBao is unsealed: `make openbao-status` |
+| ESO auth fails | Re-run `bash scripts/openbao-bootstrap.sh` and `make openbao-policies` |
+| RabbitMQ Secret missing | Confirm `openbao-store-rabbitmq.sh` completed, then re-apply `infrastructure/external-secrets/stores` |
+| RabbitMQ pod crash-loops | Wait for `messaging/rabbitmq-credentials`, then run `kubectl rollout restart deployment/rabbitmq -n messaging` |
+| Policy denied errors | Confirm the ESO Kubernetes auth role points at the expected service account/namespace |
+
+## Tailscale access helpers
+
+`setup.sh` is the primary path for Tailscale when credentials are present in `config.env`:
+
+```text
+TAILSCALE_CLIENT_ID
+TAILSCALE_CLIENT_SECRET
 ```
--f, --target-file <path>   Target a specific file to purge (can repeat)
--p, --target-pattern <rx>  Target files matching a regex pattern
--a, --auto                 Auto-detect secrets using Gitleaks and purge them
--c, --config <path>        Use a config file for settings
--b, --backup-dir <path>    Custom backup directory (default: /tmp/<repo>-backup-<timestamp>)
--n, --no-backup            Skip backup creation
--y, --yes                  Auto-confirm all prompts (use with caution)
-    --dry-run              Preview changes without rewriting history
-    --list-history         List secret files in history without purging
--v, --verbose              Verbose output
--h, --help                 Show help
-```
 
----
+When enabled, setup creates the OAuth Secret, installs the operator, annotates the OpenBao service, configures Tailscale Serve through `configure-tailscale-serve.sh`, and deploys the Serve watcher.
 
-## What the Script Does (Step by Step)
-
-1. **Pre-flight checks** — Verifies `git-filter-repo`, Git repo status, uncommitted changes.
-2. **Secret discovery** — Scans for files matching patterns or uses user-specified targets.
-3. **Backup** — Creates a mirror clone to `/tmp/<repo>-backup-<timestamp>`.
-4. **Signature detection** — Counts GPG/SSH/SMIME signed commits in history.
-5. **Interactive prompt** — Asks how to handle signatures if found (re-sign, accept unsigned, or cancel).
-6. **History rewrite** — Runs `git filter-repo` to remove secret files.
-7. **Verification** — Confirms secrets are gone from history.
-8. **Re-sign (optional)** — Re-signs all rewritten commits if chosen (with automatic stash/unstash).
-9. **Gitleaks scan** — Re-runs Gitleaks to confirm zero leaks.
-10. **Safe push** — Offers force-push only after everything is validated.
-
----
-
-## Commit Signatures
-
-If your repository uses signed commits, the script will ask:
-
-| Option | Result |
-|--------|--------|
-| **Re-sign all** | All rewritten commits get new signatures. Requires a GPG or SSH key. |
-| **Accept unsigned history** | Historical commits lose "Verified" badge; future commits are signed normally. |
-| **Cancel** | No changes made. |
-
-> **Note:** Re-signing stashes any uncommitted changes automatically and restores them afterward.
-
----
-
-## Legacy Script: `purge-secret-history.sh`
-
-A simpler, non-interactive script for basic history purge:
+Manual/recovery helpers live mostly in `tailscale/`:
 
 ```bash
-chmod +x scripts/purge-secret-history.sh
-./scripts/purge-secret-history.sh
+./tailscale/restore-state.sh latest
+./tailscale/reset-proxies.sh
+./tailscale/sign-proxies.sh --sudo
+./tailscale/check-access.sh
+./scripts/configure-tailscale-serve.sh
 ```
 
-This script:
-- Auto-detects `git-filter-repo` or BFG.
-- Purges hardcoded secret files.
-- Does **not** handle commit signatures automatically.
-- Does **not** validate with Gitleaks afterward.
+Use the recovery path before or immediately after a full cluster rebuild to avoid duplicate Tailscale operator/proxy devices.
 
-Use it only if you want full manual control or are working on a repo without signed commits.
+## Security scanning
 
----
+Run all scanner checks:
 
-## Troubleshooting
+```bash
+make scan
+```
 
-| Problem | Solution |
-|---------|----------|
-| `git-filter-repo: command not found` | Run `pip install git-filter-repo` |
-| `Not a git repository` | Run the script from inside a Git repo |
-| `Uncommitted changes` | Commit or stash your work first, or the script will warn you |
-| `Gitleaks not found` | Install Gitleaks or let the script use Docker fallback |
-| Force-push rejected | You may lack permissions. Ask a repo admin, or use `--no-push` and push manually |
-| Re-signing fails | Ensure `user.signingkey` is set in Git config and your key is unlocked |
+Run individual scanner groups through Make targets when needed:
 
----
+```bash
+make sast
+make secrets
+make sca
+make sbom
+make iac
+make validate
+```
 
-## Safety Checklist
+Generated reports are ignored by Git.
 
-Before running on a production repository:
+## Emergency Git secret cleanup scripts
 
-- [ ] Notify all collaborators that history will be rewritten.
-- [ ] Ensure you have force-push permissions on the remote.
-- [ ] Verify the backup clone was created successfully.
-- [ ] Test on a fork or mirror first if possible.
-- [ ] Have a rollback plan (restore from the backup clone).
+`auto-purge-secret.sh` and `purge-secret-history.sh` are retained as emergency tools for removing leaked secrets from Git history. These scripts rewrite history and can disrupt collaborators.
+
+Use only after:
+
+- rotating the leaked secret first
+- notifying collaborators
+- creating a backup/mirror clone
+- testing on a fork or disposable clone
+- confirming you have permission to force-push
+
+Prefer `auto-purge-secret.sh` because it includes better discovery and validation. `purge-secret-history.sh` is legacy/manual.

@@ -11,11 +11,28 @@ OpenBao policy source files live in `policies/openbao/*.hcl`:
 ```text
 policies/openbao/
 ├── admin.hcl
-├── eso-reader.hcl
-├── ci-deployer.hcl
 ├── app-demo.hcl
+├── auditor.hcl
+├── ci-deployer.hcl
+├── default-app.hcl
+├── default-read.hcl
+├── default-user.hcl
+├── eso-reader.hcl
+├── kv-admin.hcl
+├── ssh-user.hcl
 └── tailscale-operator.hcl
 ```
+
+Policy roles:
+
+- `admin.hcl`: operational administration without application secret-value reads.
+- `auditor.hcl`: metadata/config visibility only; explicitly denies `secret/data/*`.
+- `kv-admin.hcl`: KV v2 metadata and lifecycle administration without secret-value reads.
+- `default-read.hcl`: safe shared read-only access to `common/public`.
+- `default-user.hcl`: human user namespace access using `identity.entity.id`.
+- `default-app.hcl`: app metadata-templated access for explicitly tagged app identities.
+- `ssh-user.hcl`: human SSH signing access to per-entity SSH roles.
+- `eso-reader.hcl`, `ci-deployer.hcl`, `app-demo.hcl`, `tailscale-operator.hcl`: existing Kubernetes/automation policies.
 
 Apply them to a running cluster with:
 
@@ -30,6 +47,44 @@ GITHUB_REPOSITORY=owner/repo bash scripts/openbao-apply-policies.sh --enable-jwt
 ```
 
 Best practice for this repository: keep OpenBao policies in these HCL files as the source of truth, apply them through scripts, and use the OpenBao UI only for verification/debugging.
+
+### OpenBao policy-to-principal mapping
+
+OpenBao HCL files define capabilities only. They do **not** automatically create users, AppRoles, Kubernetes auth roles, identity entities, or aliases.
+
+Principal mapping is intentionally explicit:
+
+| Mapping type | Where it is managed | Why |
+|---|---|---|
+| Human userpass users | `scripts/openbao-create-user.sh` | User creation needs a password, identity alias, metadata, and optional SSH role |
+| Machine/CI AppRoles | `scripts/openbao-create-approle.sh` | AppRole creation emits sensitive RoleID / wrapped SecretID material |
+| Kubernetes service-account roles | `scripts/openbao-apply-policies.sh` | A policy file alone should not silently grant a Kubernetes principal access |
+| ESO reader role | `scripts/openbao-bootstrap.sh` and reconciled policy scripts | ESO needs bootstrap-time access after OpenBao is initialized/unsealed |
+
+The mapping table in `scripts/openbao-apply-policies.sh` is deliberately reviewable Bash data. If it is ever moved to YAML/env metadata, preserve the same explicit review model and validate that every mapped policy has a corresponding `policies/openbao/*.hcl` file.
+
+### Operational sequence
+
+For a fresh cluster, apply OpenBao policy behavior in this order:
+
+```bash
+make up
+kubectl wait --for=condition=Ready pod/openbao-0 -n openbao --timeout=300s
+bash scripts/openbao-bootstrap.sh
+make openbao-policies
+bash scripts/openbao-store-rabbitmq.sh
+kubectl apply -k infrastructure/external-secrets/stores
+```
+
+Use `make openbao-policies` after editing any `policies/openbao/*.hcl` file or after changing the explicit Kubernetes mapping table.
+
+### Verification
+
+```bash
+kubectl exec -n openbao openbao-0 -- sh -c 'BAO_ADDR=http://127.0.0.1:8200 bao policy list'
+kubectl exec -n openbao openbao-0 -- sh -c 'BAO_ADDR=http://127.0.0.1:8200 bao auth list'
+make openbao-status
+```
 
 ## Kyverno Policies
 

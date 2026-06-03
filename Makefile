@@ -1,4 +1,4 @@
-.PHONY: up down scan tailscale tailscale-reset tailscale-sign tailscale-check status access-info help validate-kustomize sync redeploy flux-status flux-diff security sast secrets sca sbom iac validate clean prune-branches prune-branches-force tag openbao-policies
+.PHONY: up down scan tailscale tailscale-reset tailscale-sign tailscale-check status access-info help validate-kustomize sync redeploy flux-status flux-diff security sast secrets sca sbom iac validate clean prune-branches prune-branches-force tag openbao-policies openbao-status openbao-create-user openbao-create-approle
 
 up:
 	./setup.sh
@@ -29,6 +29,23 @@ access-info:
 
 openbao-policies:
 	bash scripts/openbao-apply-policies.sh
+
+openbao-status:
+	bash scripts/openbao-status.sh
+
+openbao-create-user:
+	@if [ -z "$(USER)" ] || [ -z "$(PASSWORD)" ]; then \
+		echo "Usage: make openbao-create-user USER=<username> PASSWORD=<password> [POLICY=default-user] [SSH=true]"; \
+		exit 1; \
+	fi
+	bash scripts/openbao-create-user.sh "$(USER)" "$(PASSWORD)" "$(or $(POLICY),default-user)" $(if $(filter true,$(SSH)),--ssh,)
+
+openbao-create-approle:
+	@if [ -z "$(ROLE)" ] || [ -z "$(POLICY)" ]; then \
+		echo "Usage: make openbao-create-approle ROLE=<role-name> POLICY=<policy>"; \
+		exit 1; \
+	fi
+	bash scripts/openbao-create-approle.sh "$(ROLE)" "$(POLICY)"
 
 validate-kustomize:
 	@echo "Validating cluster entrypoint overlay..."

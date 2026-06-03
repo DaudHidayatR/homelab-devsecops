@@ -23,6 +23,9 @@ OPENBAO_POD="openbao-0"
 OPENBAO_NS="openbao"
 REMOTE_POLICY_DIR="/tmp/openbao-policies"
 ENABLE_JWT="false"
+SSH_ROLE_NAME="admin"
+SSH_ALLOWED_USERS="*"
+SSH_DEFAULT_USER="ubuntu"
 
 # Kubernetes auth/entity mapping table.
 # Format: policy_name|namespace|service_account|create_kubernetes_role|create_identity_alias
@@ -196,6 +199,27 @@ for mapping in "${POLICY_MAPPINGS[@]}"; do
 
   ensure_entity_and_alias "$policy" "$namespace" "$service_account" "$create_alias"
 done
+echo ""
+
+# ── Ensure SSH client-signer role for admin ─────────────────────────
+
+echo "=== Ensuring SSH client-signer admin role ==="
+
+if _bao_exec_quiet "bao secrets list -format=json" | python3 -c "import json,sys; d=json.load(sys.stdin); print('ssh-client-signer/' in d)" 2>/dev/null | grep -q True; then
+  _bao_exec "bao write ssh-client-signer/roles/'$SSH_ROLE_NAME' \
+    algorithm_signer='rsa-sha2-256' \
+    allow_user_certificates=true \
+    allowed_users='$SSH_ALLOWED_USERS' \
+    default_user='$SSH_DEFAULT_USER' \
+    key_type='ca' \
+    ttl='30m'" >/dev/null
+  echo "  Ensured SSH role: ssh-client-signer/roles/$SSH_ROLE_NAME"
+  echo "    allowed_users: $SSH_ALLOWED_USERS"
+  echo "    default_user:  $SSH_DEFAULT_USER"
+else
+  echo "  SSH secrets engine not enabled at ssh-client-signer/."
+  echo "  Enable it first: bao secrets enable -path=ssh-client-signer ssh"
+fi
 echo ""
 
 if [ "$ENABLE_JWT" = "true" ]; then
