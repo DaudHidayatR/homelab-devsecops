@@ -19,11 +19,12 @@ SSH_ENABLED="false"
 usage() {
   cat <<USAGE
 Usage:
-  bash scripts/openbao/create-user.sh <username> <password> [policy] [--ssh]
+  bash scripts/openbao/create-user.sh <username> <password> [policy[,policy...]] [--ssh]
 
 Examples:
   bash scripts/openbao/create-user.sh alice 'change-me' user-default
   bash scripts/openbao/create-user.sh alice 'change-me' user-default --ssh
+  bash scripts/openbao/create-user.sh sagash 'change-me' user-default,system-admin,user-ssh --ssh
 USAGE
 }
 
@@ -34,10 +35,10 @@ fi
 
 USERNAME="$1"
 PASSWORD="$2"
-POLICY="${3:-$DEFAULT_POLICY}"
+POLICIES="${3:-$DEFAULT_POLICY}"
 shift 2
 if [ $# -gt 0 ] && [ "${1:-}" != "--ssh" ]; then
-  POLICY="$1"
+  POLICIES="$1"
   shift
 fi
 while [ $# -gt 0 ]; do
@@ -54,10 +55,12 @@ if ! [[ "$USERNAME" =~ ^[A-Za-z0-9._-]+$ ]]; then
   exit 1
 fi
 
-if ! [[ "$POLICY" =~ ^[A-Za-z0-9._-]+$ ]]; then
-  echo "ERROR: Policy must match ^[A-Za-z0-9._-]+$" >&2
+if ! [[ "$POLICIES" =~ ^[A-Za-z0-9._-]+(,[A-Za-z0-9._-]+)*$ ]]; then
+  echo "ERROR: Policies must be a comma-separated list matching ^[A-Za-z0-9._-]+(,[A-Za-z0-9._-]+)*$" >&2
   exit 1
 fi
+
+IFS=',' read -r -a POLICY_LIST <<< "$POLICIES"
 
 mkdir -p "$BACKUP_DIR/users"
 
@@ -90,14 +93,16 @@ if ! _bao_exec_quiet "bao auth list -format=json" | python3 -c "import json,sys;
   exit 1
 fi
 
-if ! _bao_exec_quiet "bao policy read '$POLICY' >/dev/null 2>&1"; then
-  echo "ERROR: Policy '$POLICY' does not exist." >&2
-  exit 1
-fi
+for policy in "${POLICY_LIST[@]}"; do
+  if ! _bao_exec_quiet "bao policy read '$policy' >/dev/null 2>&1"; then
+    echo "ERROR: Policy '$policy' does not exist." >&2
+    exit 1
+  fi
+done
 
 echo "=== Ensuring userpass user '$USERNAME' ==="
-_bao_exec "bao write auth/userpass/users/'$USERNAME' password='$PASSWORD_ESCAPED' policies='$POLICY' token_ttl='1h' token_max_ttl='4h'" >/dev/null
-echo "  Userpass user configured with policy: $POLICY"
+_bao_exec "bao write auth/userpass/users/'$USERNAME' password='$PASSWORD_ESCAPED' policies='$POLICIES' token_ttl='1h' token_max_ttl='4h'" >/dev/null
+echo "  Userpass user configured with policies: $POLICIES"
 
 ACCESSOR="$(_bao_exec "bao read -field=accessor sys/auth/userpass")"
 ENTITY_NAME="user-${USERNAME}"
@@ -105,18 +110,20 @@ ENTITY_NAME="user-${USERNAME}"
 if _bao_exec "bao read identity/entity/name/'$ENTITY_NAME' >/dev/null 2>&1"; then
   ENTITY_ID="$(_bao_exec "bao read -field=id identity/entity/name/'$ENTITY_NAME'")"
   _bao_exec "bao write identity/entity/id/'$ENTITY_ID' \
-    policies='$POLICY' \
+    policies='$POLICIES' \
     metadata=managed_by='openbao-create-user' \
     metadata=username='$USERNAME' \
-    metadata=policy='$POLICY' \
+    metadata=policy='$POLICIES' \
+    metadata=policies='$POLICIES' \
     metadata=ssh_enabled='$SSH_ENABLED'" >/dev/null
 else
   ENTITY_ID="$(_bao_exec "bao write -field=id identity/entity \
     name='$ENTITY_NAME' \
-    policies='$POLICY' \
+    policies='$POLICIES' \
     metadata=managed_by='openbao-create-user' \
     metadata=username='$USERNAME' \
-    metadata=policy='$POLICY' \
+    metadata=policy='$POLICIES' \
+    metadata=policies='$POLICIES' \
     metadata=ssh_enabled='$SSH_ENABLED'")"
 fi
 
@@ -130,7 +137,8 @@ echo "  Alias: $USERNAME -> $ENTITY_ID"
 
 _bao_exec "bao kv put 'secret/users/${ENTITY_ID}/profile' \
   username='$USERNAME' \
-  policy='$POLICY' \
+  policy='$POLICIES' \
+  policies='$POLICIES' \
   ssh_enabled='$SSH_ENABLED' \
   managed_by='openbao-create-user'" >/dev/null
 echo "  Stored non-sensitive metadata at secret/users/${ENTITY_ID}/profile"
@@ -157,7 +165,8 @@ print(json.dumps({
   "username": "$USERNAME",
   "entity_name": "$ENTITY_NAME",
   "entity_id": "$ENTITY_ID",
-  "policy": "$POLICY",
+  "policy": "$POLICIES",
+  "policies": "$POLICIES",
   "ssh_enabled": "$SSH_ENABLED" == "true",
   "password_stored_in_kv": False
 }, indent=2))

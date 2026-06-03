@@ -56,6 +56,7 @@ Recommended explicit creation:
 
 ```bash
 make openbao-create-user USER=alice PASSWORD='change-me' POLICY=user-default SSH=true
+make openbao-create-user USER=sagash PASSWORD='change-me' POLICY=user-default,system-admin,user-ssh SSH=true
 make openbao-create-approle ROLE=ci-robot POLICY=ci-deployer
 ```
 
@@ -147,14 +148,16 @@ Use for human access.
 
 ```bash
 make openbao-create-user USER=alice PASSWORD='change-me' POLICY=user-default SSH=true
+make openbao-create-user USER=sagash PASSWORD='change-me' POLICY=user-default,system-admin,user-ssh SSH=true
 # or
 bash scripts/openbao/create-user.sh alice 'change-me' user-default --ssh
+bash scripts/openbao/create-user.sh sagash 'change-me' user-default,system-admin,user-ssh --ssh
 ```
 
 Behavior:
 
 - creates/updates a userpass user
-- attaches the requested policy, defaulting to `user-default` through the Makefile
+- attaches the requested policy or comma-separated policy list, defaulting to `user-default` through the Makefile
 - creates/updates an identity entity and userpass alias
 - stores non-sensitive profile metadata in KV
 - optionally creates a per-user SSH signing role when `SSH=true` / `--ssh` is used

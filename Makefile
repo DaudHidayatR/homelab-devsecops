@@ -35,7 +35,7 @@ openbao-status:
 
 openbao-create-user:
 	@if [ -z "$(USER)" ] || [ -z "$(PASSWORD)" ]; then \
-		echo "Usage: make openbao-create-user USER=<username> PASSWORD=<password> [POLICY=user-default] [SSH=true]"; \
+		echo "Usage: make openbao-create-user USER=<username> PASSWORD=<password> [POLICY=user-default[,system-admin,user-ssh]] [SSH=true]"; \
 		exit 1; \
 	fi
 	bash scripts/openbao/create-user.sh "$(USER)" "$(PASSWORD)" "$(or $(POLICY),user-default)" $(if $(filter true,$(SSH)),--ssh,)
