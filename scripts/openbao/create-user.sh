@@ -13,7 +13,7 @@ common::load_config "${PROJECT_ROOT}/config.env"
 source "${PROJECT_ROOT}/scripts/lib/openbao.sh"
 
 BACKUP_DIR="${OPENBAO_BACKUP_DIR}"
-DEFAULT_POLICY="default-user"
+DEFAULT_POLICY="user-default"
 SSH_ENABLED="false"
 
 usage() {
@@ -22,8 +22,8 @@ Usage:
   bash scripts/openbao/create-user.sh <username> <password> [policy] [--ssh]
 
 Examples:
-  bash scripts/openbao/create-user.sh alice 'change-me' default-user
-  bash scripts/openbao/create-user.sh alice 'change-me' default-user --ssh
+  bash scripts/openbao/create-user.sh alice 'change-me' user-default
+  bash scripts/openbao/create-user.sh alice 'change-me' user-default --ssh
 USAGE
 }
 

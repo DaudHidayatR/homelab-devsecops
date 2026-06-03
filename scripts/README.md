@@ -42,7 +42,7 @@ Lifecycle:
 
 1. `scripts/cluster/setup.sh` / `make up` deploys OpenBao and creates the `openbao-tls` Kubernetes Secret used by lab access integration.
 2. `scripts/openbao/bootstrap.sh` initializes OpenBao if needed, unseals it, enables required engines/auth methods, writes baseline policies, and creates the ESO Kubernetes auth role.
-3. `scripts/openbao/apply-policies.sh` is the repeatable policy reconciliation entrypoint for `policies/openbao/*.hcl` and explicit Kubernetes identity mappings.
+3. `scripts/openbao/apply-policies.sh` is the repeatable policy reconciliation entrypoint for registered policy files under `policies/openbao/` and explicit Kubernetes identity mappings.
 4. `scripts/openbao/create-user.sh` creates human `userpass` users and optional per-user SSH signing roles.
 5. `scripts/openbao/create-approle.sh` creates machine/CI AppRoles with response-wrapped single-use SecretIDs.
 6. `scripts/openbao/store-rabbitmq.sh` writes RabbitMQ credentials into OpenBao KV v2.
@@ -55,7 +55,7 @@ No standing OpenBao human user or machine AppRole is required by default.
 Recommended explicit creation:
 
 ```bash
-make openbao-create-user USER=alice PASSWORD='change-me' POLICY=default-user SSH=true
+make openbao-create-user USER=alice PASSWORD='change-me' POLICY=user-default SSH=true
 make openbao-create-approle ROLE=ci-robot POLICY=ci-deployer
 ```
 
@@ -83,7 +83,7 @@ Examples include root token backup, unseal key backup, AppRole RoleID files, and
 | Script | Phase | Purpose | Safe to rerun | Requires OpenBao token/root backup | Creates or stores secrets | Verification |
 |---|---|---|---:|---:|---:|---|
 | `scripts/openbao/bootstrap.sh` | First-run OpenBao | Initialize/unseal OpenBao; enable KV v2, SSH signer, Kubernetes auth, userpass, AppRole; apply baseline policies; create ESO role | Mostly | Uses generated/restored root material | Yes | `make openbao-status` |
-| `scripts/openbao/apply-policies.sh` | OpenBao reconciliation | Apply `policies/openbao/*.hcl` and explicit Kubernetes auth/entity/alias mappings | Yes | Yes, or `OPENBAO_TOKEN` | No | `kubectl exec -n openbao openbao-0 -- sh -c 'BAO_ADDR=http://127.0.0.1:8200 bao policy list'` |
+| `scripts/openbao/apply-policies.sh` | OpenBao reconciliation | Apply registered policy files under `policies/openbao/` and explicit Kubernetes auth/entity/alias mappings | Yes | Yes, or `OPENBAO_TOKEN` | No | `kubectl exec -n openbao openbao-0 -- sh -c 'BAO_ADDR=http://127.0.0.1:8200 bao policy list'` |
 | `scripts/openbao/create-user.sh` | Human access | Create/update userpass user, identity entity/alias, profile metadata, optional SSH role | Yes | Yes, or admin token | Yes | `make openbao-status` then login with userpass |
 | `scripts/openbao/create-approle.sh` | Machine/CI access | Create/update AppRole with short-lived token and response-wrapped single-use SecretID | Yes | Yes, or admin token | Yes | `ls .runtime-backups/openbao/approles/` |
 | `scripts/openbao/store-rabbitmq.sh` | App secret seed | Store RabbitMQ credentials at `secret/data/messaging/rabbitmq` | Yes | Yes, or admin token | Yes | `kubectl get secret rabbitmq-credentials -n messaging` after ESO sync |
@@ -136,7 +136,7 @@ OPENBAO_TOKEN=<token> bash scripts/openbao/apply-policies.sh
 
 Important behavior:
 
-- `policies/openbao/*.hcl` is the policy source of truth.
+- Registered HCL files under `policies/openbao/` are the policy source of truth.
 - Kubernetes auth roles and identity aliases are driven by an explicit mapping table inside the script.
 - A policy file alone does not automatically create a Kubernetes principal.
 - Re-running is expected after policy changes.
@@ -146,15 +146,15 @@ Important behavior:
 Use for human access.
 
 ```bash
-make openbao-create-user USER=alice PASSWORD='change-me' POLICY=default-user SSH=true
+make openbao-create-user USER=alice PASSWORD='change-me' POLICY=user-default SSH=true
 # or
-bash scripts/openbao/create-user.sh alice 'change-me' default-user --ssh
+bash scripts/openbao/create-user.sh alice 'change-me' user-default --ssh
 ```
 
 Behavior:
 
 - creates/updates a userpass user
-- attaches the requested policy, defaulting to `default-user` through the Makefile
+- attaches the requested policy, defaulting to `user-default` through the Makefile
 - creates/updates an identity entity and userpass alias
 - stores non-sensitive profile metadata in KV
 - optionally creates a per-user SSH signing role when `SSH=true` / `--ssh` is used

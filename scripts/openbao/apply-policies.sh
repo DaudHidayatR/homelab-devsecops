@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Apply OpenBao policy-as-code files from policies/openbao/*.hcl.
+# Apply OpenBao policy-as-code files from the explicit policies/openbao registry.
 #
 # This script makes the repo the source of truth for OpenBao policies.
 # It is safe to re-run: bao policy write overwrites policies atomically,
@@ -30,6 +30,23 @@ SSH_ROLE_NAME="admin"
 SSH_ALLOWED_USERS="*"
 SSH_DEFAULT_USER="ubuntu"
 
+# Explicit policy registry.
+# Format: policy_name|relative_policy_file
+# Keep this explicit so nested policy directories do not automatically grant access.
+POLICY_FILES=(
+  "system-admin|system/system-admin.hcl"
+  "audit-metadata-reader|audit/audit-metadata-reader.hcl"
+  "secret-kv-admin|secret-engine/secret-kv-admin.hcl"
+  "shared-read-public|shared/shared-read-public.hcl"
+  "user-default|user/user-default.hcl"
+  "user-ssh|user/user-ssh.hcl"
+  "app-default|app/app-default.hcl"
+  "app-demo|app/app-demo.hcl"
+  "app-tailscale-operator|app/app-tailscale-operator.hcl"
+  "k8s-eso-reader|kubernetes/k8s-eso-reader.hcl"
+  "ci-deployer|ci/ci-deployer.hcl"
+)
+
 # Kubernetes auth/entity mapping table.
 # Format: policy_name|namespace|service_account|create_kubernetes_role|create_identity_alias
 #
@@ -37,11 +54,11 @@ SSH_DEFAULT_USER="ubuntu"
 # CI/CD uses optional GitHub OIDC JWT auth for ci-deployer; the Kubernetes role is
 # retained here for clusters that also run an in-cluster ci-deployer service account.
 POLICY_MAPPINGS=(
-  "eso-reader|external-secrets|external-secrets|true|true"
+  "k8s-eso-reader|external-secrets|external-secrets|true|true"
   "app-demo|demo|default|true|true"
-  "tailscale-operator|tailscale|operator|true|true"
+  "app-tailscale-operator|tailscale|operator|true|true"
   "ci-deployer|flux-system|ci-deployer|true|true"
-  "admin|kube-system|headlamp-admin|true|true"
+  "system-admin|kube-system|headlamp-admin|true|true"
 )
 
 if [ "${1:-}" = "--enable-jwt" ]; then
@@ -61,7 +78,28 @@ require_file() {
 }
 
 policy_exists_in_repo() {
-  [ -f "$POLICY_DIR/$1.hcl" ]
+  local requested_policy="$1"
+  local policy
+  local relative_path
+
+  for policy_entry in "${POLICY_FILES[@]}"; do
+    IFS='|' read -r policy relative_path <<< "$policy_entry"
+    if [ "$policy" = "$requested_policy" ] && [ -f "$POLICY_DIR/$relative_path" ]; then
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+validate_policy_registry() {
+  local policy
+  local relative_path
+
+  for policy_entry in "${POLICY_FILES[@]}"; do
+    IFS='|' read -r policy relative_path <<< "$policy_entry"
+    require_file "$POLICY_DIR/$relative_path"
+  done
 }
 
 ensure_entity_and_alias() {
@@ -129,11 +167,7 @@ fi
 
 kubectl wait --for=condition=Ready "pod/${OPENBAO_POD}" -n "$OPENBAO_NS" --timeout=300s
 
-require_file "$POLICY_DIR/admin.hcl"
-require_file "$POLICY_DIR/eso-reader.hcl"
-require_file "$POLICY_DIR/ci-deployer.hcl"
-require_file "$POLICY_DIR/app-demo.hcl"
-require_file "$POLICY_DIR/tailscale-operator.hcl"
+validate_policy_registry
 
 ROOT_TOKEN="$(openbao::load_root_token)"
 
@@ -145,15 +179,15 @@ echo ""
 echo "=== Copying policy files into OpenBao pod ==="
 _bao_exec "rm -rf '$REMOTE_POLICY_DIR' && mkdir -p '$REMOTE_POLICY_DIR'"
 kubectl cp "$POLICY_DIR/." "${OPENBAO_NS}/${OPENBAO_POD}:${REMOTE_POLICY_DIR}"
-echo "  Copied policies/openbao/*.hcl to ${OPENBAO_POD}:${REMOTE_POLICY_DIR}"
+echo "  Copied policies/openbao/ functional policy tree to ${OPENBAO_POD}:${REMOTE_POLICY_DIR}"
 echo ""
 
-echo "=== Applying policies from repo ==="
-while IFS= read -r policy_file; do
-  policy="$(basename "$policy_file" .hcl)"
-  _bao_exec "bao policy write '$policy' '${REMOTE_POLICY_DIR}/${policy}.hcl'" >/dev/null
-  echo "  Applied policy: $policy"
-done < <(find "$POLICY_DIR" -maxdepth 1 -type f -name '*.hcl' | sort)
+echo "=== Applying policies from registry ==="
+for policy_entry in "${POLICY_FILES[@]}"; do
+  IFS='|' read -r policy relative_path <<< "$policy_entry"
+  _bao_exec "bao policy write '$policy' '${REMOTE_POLICY_DIR}/${relative_path}'" >/dev/null
+  echo "  Applied policy: $policy ($relative_path)"
+done
 echo ""
 
 echo "=== Ensuring mapped Kubernetes roles, entities, and aliases ==="
@@ -161,7 +195,7 @@ for mapping in "${POLICY_MAPPINGS[@]}"; do
   IFS='|' read -r policy namespace service_account create_role create_alias <<< "$mapping"
 
   if ! policy_exists_in_repo "$policy"; then
-    echo "  Skipping mapping for '$policy': $POLICY_DIR/$policy.hcl not found."
+    echo "  Skipping mapping for '$policy': policy is not present in POLICY_FILES or file is missing."
     continue
   fi
 

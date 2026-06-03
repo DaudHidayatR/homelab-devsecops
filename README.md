@@ -262,8 +262,8 @@ OpenBao initialization and unseal are intentionally manual. This keeps root toke
 |---|---|---|---|
 | Deploy platform | `make up` | Create kind cluster and deploy OpenBao/ESO controllers | OpenBao is deployed but not initialized/unsealed |
 | Initialize/unseal | `bash scripts/openbao/bootstrap.sh` | Initialize if needed, unseal, enable KV v2/SSH/Kubernetes/userpass/AppRole, apply baseline policies | Stores root/unseal material under `.runtime-backups/openbao/` |
-| Reconcile policies | `make openbao-policies` | Re-apply `policies/openbao/*.hcl` and explicit Kubernetes auth/entity mappings | Safe after policy changes |
-| Create human users | `make openbao-create-user USER=alice PASSWORD='...' POLICY=default-user SSH=true` | Create userpass user and optional SSH signing role | No default human user is created unless explicitly requested |
+| Reconcile policies | `make openbao-policies` | Re-apply registered policies under `policies/openbao/` and explicit Kubernetes auth/entity mappings | Safe after policy changes |
+| Create human users | `make openbao-create-user USER=alice PASSWORD='...' POLICY=user-default SSH=true` | Create userpass user and optional SSH signing role | No default human user is created unless explicitly requested |
 | Create machine access | `make openbao-create-approle ROLE=ci-robot POLICY=ci-deployer` | Create AppRole with response-wrapped single-use SecretID | No default AppRole is created unless explicitly requested |
 | Seed app secret | `bash scripts/openbao/store-rabbitmq.sh` | Store RabbitMQ credentials in OpenBao KV v2 | Source path is `secret/data/messaging/rabbitmq` |
 | Activate ESO sync | `kubectl apply -k infrastructure/external-secrets/stores` | Create ClusterSecretStore/ExternalSecret resources | Run only after OpenBao is initialized, unsealed, and seeded |
@@ -295,7 +295,7 @@ Fresh cluster sequence:
    ```bash
    make openbao-status
    make openbao-policies
-   make openbao-create-user USER=alice PASSWORD='change-me' POLICY=default-user SSH=true
+   make openbao-create-user USER=alice PASSWORD='change-me' POLICY=user-default SSH=true
    make openbao-create-approle ROLE=ci-robot POLICY=ci-deployer
    ```
 

@@ -26,6 +26,22 @@ REMOTE_POLICY_DIR="/tmp/openbao-policies"
 ESO_NS="${ESO_NAMESPACE:-external-secrets}"
 ESO_SA="${ESO_SERVICE_ACCOUNT:-external-secrets}"
 
+# Explicit policy registry.
+# Format: policy_name|relative_policy_file
+POLICY_FILES=(
+  "system-admin|system/system-admin.hcl"
+  "audit-metadata-reader|audit/audit-metadata-reader.hcl"
+  "secret-kv-admin|secret-engine/secret-kv-admin.hcl"
+  "shared-read-public|shared/shared-read-public.hcl"
+  "user-default|user/user-default.hcl"
+  "user-ssh|user/user-ssh.hcl"
+  "app-default|app/app-default.hcl"
+  "app-demo|app/app-demo.hcl"
+  "app-tailscale-operator|app/app-tailscale-operator.hcl"
+  "k8s-eso-reader|kubernetes/k8s-eso-reader.hcl"
+  "ci-deployer|ci/ci-deployer.hcl"
+)
+
 mkdir -p "$BACKUP_DIR"
 
 # ── Helpers ────────────────────────────────────────────────────────────
@@ -240,19 +256,21 @@ fi
 echo ""
 echo "=== Applying OpenBao policy-as-code files ==="
 
-mapfile -t POLICY_FILES < <(find "$POLICY_DIR" -maxdepth 1 -type f -name '*.hcl' | sort)
-if [ "${#POLICY_FILES[@]}" -eq 0 ]; then
-  echo "ERROR: No policy files found in $POLICY_DIR"
-  exit 1
-fi
+for policy_entry in "${POLICY_FILES[@]}"; do
+  IFS='|' read -r policy relative_path <<< "$policy_entry"
+  if [ ! -f "$POLICY_DIR/$relative_path" ]; then
+    echo "ERROR: Policy file not found: $POLICY_DIR/$relative_path"
+    exit 1
+  fi
+done
 
 _bao_exec "rm -rf '$REMOTE_POLICY_DIR' && mkdir -p '$REMOTE_POLICY_DIR'"
 kubectl cp "$POLICY_DIR/." "${OPENBAO_NS}/${OPENBAO_POD}:${REMOTE_POLICY_DIR}"
 
-for policy_file in "${POLICY_FILES[@]}"; do
-  policy="$(basename "$policy_file" .hcl)"
-  _bao_exec "bao policy write '$policy' '${REMOTE_POLICY_DIR}/${policy}.hcl'"
-  echo "  Policy '$policy' applied."
+for policy_entry in "${POLICY_FILES[@]}"; do
+  IFS='|' read -r policy relative_path <<< "$policy_entry"
+  _bao_exec "bao policy write '$policy' '${REMOTE_POLICY_DIR}/${relative_path}'"
+  echo "  Policy '$policy' applied from $relative_path."
 done
 
 # ── 12. Seed safe KV hierarchy ────────────────────────────────────────
@@ -303,13 +321,13 @@ fi
 echo ""
 echo "=== Creating ESO Kubernetes auth role ==="
 
-_bao_exec "bao write auth/kubernetes/role/eso-reader \
+_bao_exec "bao write auth/kubernetes/role/k8s-eso-reader \
   bound_service_account_names='$ESO_SA' \
   bound_service_account_namespaces='$ESO_NS' \
-  policies=eso-reader \
+  policies=k8s-eso-reader \
   ttl=1h"
 
-echo "  Role 'eso-reader' created (SA: $ESO_SA, NS: $ESO_NS)."
+echo "  Role 'k8s-eso-reader' created (SA: $ESO_SA, NS: $ESO_NS)."
 
 # ── 11. Summary ──────────────────────────────────────────────────────
 
@@ -322,8 +340,8 @@ echo "  Unseal key:  $BACKUP_DIR/unseal-key.txt"
 echo ""
 echo "  Secrets engine:  secret/ (KV v2)"
 echo "  Auth methods:    kubernetes/, userpass/, approle/"
-echo "  Policies:        dynamically applied from policies/openbao/*.hcl"
-echo "  Role:            kubernetes/eso-reader"
+echo "  Policies:        applied from explicit policies/openbao functional registry"
+echo "  Role:            kubernetes/k8s-eso-reader"
 echo "    → bound to SA: $ESO_SA in namespace $ESO_NS"
 echo ""
 echo "  Optional next steps:"

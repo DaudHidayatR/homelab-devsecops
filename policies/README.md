@@ -6,33 +6,41 @@ OpenBao policies are applied by `scripts/openbao/bootstrap.sh` and `scripts/open
 
 ## OpenBao Policies
 
-OpenBao policy source files live in `policies/openbao/*.hcl`:
+OpenBao policy source files live in functional subdirectories under `policies/openbao/` and are applied through the explicit registries in `scripts/openbao/apply-policies.sh` and `scripts/openbao/bootstrap.sh`:
 
 ```text
 policies/openbao/
-├── admin.hcl
-├── app-demo.hcl
-├── auditor.hcl
-├── ci-deployer.hcl
-├── default-app.hcl
-├── default-read.hcl
-├── default-user.hcl
-├── eso-reader.hcl
-├── kv-admin.hcl
-├── ssh-user.hcl
-└── tailscale-operator.hcl
+├── app/
+│   ├── app-default.hcl
+│   ├── app-demo.hcl
+│   └── app-tailscale-operator.hcl
+├── audit/
+│   └── audit-metadata-reader.hcl
+├── ci/
+│   └── ci-deployer.hcl
+├── kubernetes/
+│   └── k8s-eso-reader.hcl
+├── secret-engine/
+│   └── secret-kv-admin.hcl
+├── shared/
+│   └── shared-read-public.hcl
+├── system/
+│   └── system-admin.hcl
+└── user/
+    ├── user-default.hcl
+    └── user-ssh.hcl
 ```
 
 Policy roles:
 
-- `admin.hcl`: operational administration without application secret-value reads.
-- `auditor.hcl`: metadata/config visibility only; explicitly denies `secret/data/*`.
-- `kv-admin.hcl`: KV v2 metadata and lifecycle administration without secret-value reads.
-- `default-read.hcl`: safe shared read-only access to `common/public`.
-- `default-user.hcl`: human user namespace access using `identity.entity.id`.
-- `default-app.hcl`: app metadata-templated access for explicitly tagged app identities.
-- `ssh-user.hcl`: human SSH signing access to per-entity SSH roles.
-- `eso-reader.hcl`, `ci-deployer.hcl`, `app-demo.hcl`, `tailscale-operator.hcl`: existing Kubernetes/automation policies.
+- `system-admin`: operational administration without application secret-value reads.
+- `audit-metadata-reader`: metadata/config visibility only; explicitly denies `secret/data/*`.
+- `secret-kv-admin`: KV v2 metadata and lifecycle administration without secret-value reads.
+- `shared-read-public`: safe shared read-only access to `common/public`.
+- `user-default`: human user namespace access using `identity.entity.id`.
+- `app-default`: app metadata-templated access for explicitly tagged app identities.
+- `user-ssh`: human SSH signing access to per-entity SSH roles.
+- `k8s-eso-reader`, `ci-deployer`, `app-demo`, `app-tailscale-operator`: Kubernetes/automation policies.
 
 Apply them to a running cluster with:
 
@@ -61,7 +69,7 @@ Principal mapping is intentionally explicit:
 | Kubernetes service-account roles | `scripts/openbao/apply-policies.sh` | A policy file alone should not silently grant a Kubernetes principal access |
 | ESO reader role | `scripts/openbao/bootstrap.sh` and reconciled policy scripts | ESO needs bootstrap-time access after OpenBao is initialized/unsealed |
 
-The mapping table in `scripts/openbao/apply-policies.sh` is deliberately reviewable Bash data. If it is ever moved to YAML/env metadata, preserve the same explicit review model and validate that every mapped policy has a corresponding `policies/openbao/*.hcl` file.
+The policy registry and mapping table in `scripts/openbao/apply-policies.sh` are deliberately reviewable Bash data. If either is ever moved to YAML/env metadata, preserve the same explicit review model and validate that every mapped policy has a corresponding registered policy file under `policies/openbao/`.
 
 ### Operational sequence
 
@@ -76,7 +84,7 @@ bash scripts/openbao/store-rabbitmq.sh
 kubectl apply -k infrastructure/external-secrets/stores
 ```
 
-Use `make openbao-policies` after editing any `policies/openbao/*.hcl` file or after changing the explicit Kubernetes mapping table.
+Use `make openbao-policies` after editing any registered policy file under `policies/openbao/` or after changing the explicit policy registry/Kubernetes mapping table.
 
 ### Verification
 
