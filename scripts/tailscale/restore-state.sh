@@ -2,7 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 BACKUP_ROOT="${TAILSCALE_BACKUP_DIR:-${REPO_ROOT}/.runtime-backups/tailscale}"
 BACKUP_DIR="${1:-latest}"
 
@@ -92,6 +92,6 @@ restore_secret "${BACKUP_DIR}/operator.json" "operator identity Secret"
 
 cat <<EOF
 === Restore Complete ===
-Next step: run ./setup.sh or ./tailscale/install-operator.sh.
+Next step: run ./scripts/cluster/setup.sh or ./scripts/tailscale/install-operator.sh.
 If the operator was already started before this restore, check the Tailscale admin console for a newly-created duplicate and remove the stale/extra device after confirming the active one.
 EOF

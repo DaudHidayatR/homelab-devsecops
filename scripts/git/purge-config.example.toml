@@ -1,6 +1,6 @@
 # Example config for auto-purge-secret.sh
 # Copy this file and customize it for your repository.
-# Usage: ./scripts/auto-purge-secret.sh --config ./my-purge-config.toml
+# Usage: ./scripts/git/auto-purge-secret.sh --config ./my-purge-config.toml
 
 # Specific files to purge from Git history
 secret_files = [

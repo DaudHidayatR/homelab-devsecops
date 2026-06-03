@@ -3,9 +3,9 @@
 # Local script for running the full security scanner suite via containers.
 #
 # Usage:
-#   ./scripts/security-scan.sh              # Run all scanners
-#   ./scripts/security-scan.sh trivy        # Run Trivy only
-#   ./scripts/security-scan.sh validate     # Validate report files only
+#   ./scripts/security/scan.sh              # Run all scanners
+#   ./scripts/security/scan.sh trivy        # Run Trivy only
+#   ./scripts/security/scan.sh validate     # Validate report files only
 #
 # Environment:
 #   SCAN_ROOT      — project directory to scan (default: current directory)
@@ -21,7 +21,7 @@ set -uo pipefail
 
 # ─── CONFIGURATION ───
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 cd "$PROJECT_ROOT" || exit 1
 
 # Clean up stale output from previous runs (Checkov v3+ creates directories)

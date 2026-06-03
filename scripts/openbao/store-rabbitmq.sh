@@ -3,22 +3,27 @@
 #
 # Prerequisites:
 #   OpenBao must be initialized, unsealed, and ready.
-#   Run scripts/openbao-bootstrap.sh first if not yet bootstrapped.
+#   Run scripts/openbao/bootstrap.sh first if not yet bootstrapped.
 #
 # Usage:
-#   bash scripts/openbao-store-rabbitmq.sh
+#   bash scripts/openbao/store-rabbitmq.sh
 #
 # If a RabbitMQ credentials secret already exists in Kubernetes, it copies
 # those values into OpenBao. Otherwise, generates a new random password.
 
-set -eo pipefail
+set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BACKUP_DIR="${SCRIPT_DIR}/../.runtime-backups/openbao"
-OPENBAO_POD="openbao-0"
-OPENBAO_NS="openbao"
-RABBITMQ_NS="messaging"
-SECRET_NAME="rabbitmq-credentials"
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+
+# shellcheck source=scripts/lib/common.sh
+source "${PROJECT_ROOT}/scripts/lib/common.sh"
+common::load_config "${PROJECT_ROOT}/config.env"
+# shellcheck source=scripts/lib/openbao.sh
+source "${PROJECT_ROOT}/scripts/lib/openbao.sh"
+
+RABBITMQ_NS="${RABBITMQ_NAMESPACE:-messaging}"
+SECRET_NAME="${RABBITMQ_SECRET_NAME:-rabbitmq-credentials}"
 # CLI path for the KV v2 mount. The underlying API path is
 # secret/data/messaging/rabbitmq, while ESO remoteRef.key is messaging/rabbitmq.
 SECRET_PATH="secret/messaging/rabbitmq"
@@ -26,13 +31,11 @@ SECRET_PATH="secret/messaging/rabbitmq"
 # ── Helpers ────────────────────────────────────────────────────────────
 
 _bao_exec() {
-  kubectl exec -n "$OPENBAO_NS" "$OPENBAO_POD" -- sh -c "
-    export BAO_ADDR='http://127.0.0.1:8200'
-    $*"
+  openbao::exec "$@"
 }
 
 _bao_exec_quiet() {
-  _bao_exec "$@" 2>/dev/null || true
+  openbao::exec_quiet "$@"
 }
 
 # ── 1. Verify OpenBao is ready ────────────────────────────────────────
@@ -53,7 +56,7 @@ INITIALIZED=$(echo "$STATUS_JSON" | python3 -c "import json,sys; print(json.load
 SEALED=$(echo "$STATUS_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin).get('sealed',True))" 2>/dev/null || echo "True")
 
 if [ "$INITIALIZED" != "True" ]; then
-  echo "ERROR: OpenBao is not initialized. Run scripts/openbao-bootstrap.sh first."
+  echo "ERROR: OpenBao is not initialized. Run scripts/openbao/bootstrap.sh first."
   exit 1
 fi
 
@@ -63,11 +66,7 @@ if [ "$SEALED" = "True" ]; then
 fi
 
 # Login as root
-if [ ! -f "$BACKUP_DIR/root-token.txt" ]; then
-  echo "ERROR: Root token not found at $BACKUP_DIR/root-token.txt"
-  exit 1
-fi
-ROOT_TOKEN=$(cat "$BACKUP_DIR/root-token.txt")
+ROOT_TOKEN="$(openbao::load_root_token)"
 _bao_exec_quiet "bao login '$ROOT_TOKEN'" >/dev/null
 echo "  Authenticated to OpenBao."
 

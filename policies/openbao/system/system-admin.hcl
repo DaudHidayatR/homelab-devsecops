@@ -33,6 +33,14 @@ path "sys/namespaces/*" {
   capabilities = ["create", "read", "update", "delete", "list"]
 }
 
+path "ssh-client-signer/*" {
+  capabilities = ["create", "read", "update", "delete", "list"]
+}
+
+path "ssh-host-signer/*" {
+  capabilities = ["create", "read", "update", "delete", "list"]
+}
+
 path "secret/data/*" {
   capabilities = ["deny"]
 }

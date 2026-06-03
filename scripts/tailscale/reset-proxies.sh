@@ -2,7 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 BACKUP_ROOT="${TAILSCALE_BACKUP_DIR:-${REPO_ROOT}/.runtime-backups/tailscale}"
 BACKUP_DIR="${BACKUP_ROOT}/reset-proxies-$(date +%Y%m%d-%H%M%S)"
 
@@ -56,7 +56,7 @@ cat <<EOF
 Reset complete.
 
 Next steps when Tailnet Lock is enabled:
-  ./tailscale/sign-proxies.sh
-  ./scripts/configure-tailscale-serve.sh
-  ./tailscale/check-access.sh
+  ./scripts/tailscale/sign-proxies.sh
+  ./scripts/tailscale/configure-serve.sh
+  ./scripts/tailscale/check-access.sh
 EOF

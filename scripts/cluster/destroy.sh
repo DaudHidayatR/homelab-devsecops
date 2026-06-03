@@ -2,9 +2,11 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "${SCRIPT_DIR}/config.env"
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+# shellcheck source=/dev/null
+source "${PROJECT_ROOT}/config.env"
 
-BACKUP_ROOT="${TAILSCALE_BACKUP_DIR:-${SCRIPT_DIR}/.runtime-backups/tailscale}"
+BACKUP_ROOT="${TAILSCALE_BACKUP_DIR:-${PROJECT_ROOT}/.runtime-backups/tailscale}"
 BACKUP_DIR="${BACKUP_ROOT}/$(date +%Y%m%d-%H%M%S)"
 BACKUP_CREATED="false"
 
@@ -44,7 +46,7 @@ if [ "$BACKUP_CREATED" = "true" ]; then
   echo "=== Tailscale Backup Created ==="
   echo "Backup path: ${BACKUP_DIR}"
   echo "Before reinstalling the operator on a rebuilt cluster, restore it with:"
-  echo "  ./tailscale/restore-state.sh ${BACKUP_DIR}"
+  echo "  ./scripts/tailscale/restore-state.sh ${BACKUP_DIR}"
 fi
 
 echo "=== Teardown Complete! ==="

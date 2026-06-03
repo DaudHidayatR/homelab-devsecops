@@ -1,9 +1,11 @@
 .mcp.json
+# Local MCP memory contains assistant runtime state
+.mcp-memory.json
 # Environment configuration (contains deployment constants; example file is tracked)
 config.env
 config.env.dev
 config.env.prod
-
+.env
 # Security scan reports (may contain secret fragments or vulnerability data)
 trivy-report.*
 trivy-rendered.*
