@@ -34,7 +34,7 @@ The configuration is modularized into logical directories:
    ```
    Or run the setup script directly:
    ```bash
-   ./setup.sh
+   ./scripts/cluster/setup.sh
    ```
 
 Common workflows:
@@ -50,7 +50,7 @@ Common workflows:
 | `make flux-status` | Show Flux resource status |
 | `make flux-diff` | Show pending changes for Flux-managed resources |
 
-Components are deployed via **Flux CD** when `GITHUB_TOKEN` and `GITHUB_USER` are configured. Flux continuously reconciles `infrastructure/` first, then `apps/` after infrastructure is ready. If Flux is not available, `setup.sh` falls back to applying `infrastructure/` then `apps/` sequentially via `kubectl apply -k`.
+Components are deployed via **Flux CD** when `GITHUB_TOKEN` and `GITHUB_USER` are configured. Flux continuously reconciles `infrastructure/` first, then `apps/` after infrastructure is ready. If Flux is not available, `scripts/cluster/setup.sh` falls back to applying `infrastructure/` then `apps/` sequentially via `kubectl apply -k`.
 
 ### Setup Modes
 
@@ -60,13 +60,13 @@ Components are deployed via **Flux CD** when `GITHUB_TOKEN` and `GITHUB_USER` ar
 |---|---|---|---|
 | `flux` CLI is installed, `flux check --pre` passes, and `GITHUB_USER` + `GITHUB_TOKEN` are set | Flux bootstraps from GitHub and reconciles `clusters/kind` | `GITHUB_USER`, `GITHUB_TOKEN` | OpenBao init/unseal and ESO OpenBao store activation |
 | Flux bootstrap succeeds and `FLUX_GIT_TAG` is set | Flux GitRepository is patched to watch semver tags instead of branch `main` | `FLUX_GIT_TAG`, for example `>=0.0.0` | Push a semver tag to deploy new changes |
-| `flux` is missing, Flux preflight fails, or GitHub credentials are absent | `setup.sh` falls back to direct `kubectl apply -k infrastructure` then `kubectl apply -k apps` | working `kubectl` context | No continuous GitOps reconciliation; run `make sync` or `kubectl apply -k` for updates |
+| `flux` is missing, Flux preflight fails, or GitHub credentials are absent | `scripts/cluster/setup.sh` falls back to direct `kubectl apply -k infrastructure` then `kubectl apply -k apps` | working `kubectl` context | No continuous GitOps reconciliation; run `make sync` or `kubectl apply -k` for updates |
 | `TAILSCALE_CLIENT_ID` and `TAILSCALE_CLIENT_SECRET` are set | Tailscale namespace/OAuth Secret/operator are installed; OpenBao service is annotated; Serve config/watcher are applied | Tailscale OAuth client credentials | Tailnet Lock signing may still be required via `make tailscale-sign` |
 | Tailscale credentials are absent | Tailscale installation is skipped | none | Use port-forwarding or run `make tailscale` after credentials are configured |
-| Fresh OpenBao install | OpenBao pod is deployed but sealed/uninitialized | deployed OpenBao pod | Run `bash scripts/openbao-bootstrap.sh`, then seed app secrets and apply ESO stores |
+| Fresh OpenBao install | OpenBao pod is deployed but sealed/uninitialized | deployed OpenBao pod | Run `bash scripts/openbao/bootstrap.sh`, then seed app secrets and apply ESO stores |
 | Existing initialized OpenBao | Bootstrap/status scripts can unseal and reconcile idempotent parts | root/admin token or local backup files | Re-run `make openbao-policies` after policy changes |
 
-After `make up`, check the final summary printed by `setup.sh`. It reports whether the run used Flux GitOps or direct apply fallback, whether semver mode is active, whether Tailscale was enabled, and which OpenBao/ESO steps are still pending.
+After `make up`, check the final summary printed by `scripts/cluster/setup.sh`. It reports whether the run used Flux GitOps or direct apply fallback, whether semver mode is active, whether Tailscale was enabled, and which OpenBao/ESO steps are still pending.
 
 ### Operational script map
 
@@ -123,7 +123,7 @@ This project uses [Flux CD](https://fluxcd.io) to automatically reconcile cluste
    GITHUB_USER="your-github-username"
    GITHUB_TOKEN="ghp_xxxxxxxxxxxx"
    ```
-3. Run `make up` — `setup.sh` will bootstrap Flux after creating the cluster.
+3. Run `make up` — `scripts/cluster/setup.sh` will bootstrap Flux after creating the cluster.
 
 ### How Flux Works Here
 
@@ -261,15 +261,15 @@ OpenBao initialization and unseal are intentionally manual. This keeps root toke
 | Step | Command/resource | Purpose | Notes |
 |---|---|---|---|
 | Deploy platform | `make up` | Create kind cluster and deploy OpenBao/ESO controllers | OpenBao is deployed but not initialized/unsealed |
-| Initialize/unseal | `bash scripts/openbao-bootstrap.sh` | Initialize if needed, unseal, enable KV v2/SSH/Kubernetes/userpass/AppRole, apply baseline policies | Stores root/unseal material under `.runtime-backups/openbao/` |
+| Initialize/unseal | `bash scripts/openbao/bootstrap.sh` | Initialize if needed, unseal, enable KV v2/SSH/Kubernetes/userpass/AppRole, apply baseline policies | Stores root/unseal material under `.runtime-backups/openbao/` |
 | Reconcile policies | `make openbao-policies` | Re-apply `policies/openbao/*.hcl` and explicit Kubernetes auth/entity mappings | Safe after policy changes |
 | Create human users | `make openbao-create-user USER=alice PASSWORD='...' POLICY=default-user SSH=true` | Create userpass user and optional SSH signing role | No default human user is created unless explicitly requested |
 | Create machine access | `make openbao-create-approle ROLE=ci-robot POLICY=ci-deployer` | Create AppRole with response-wrapped single-use SecretID | No default AppRole is created unless explicitly requested |
-| Seed app secret | `bash scripts/openbao-store-rabbitmq.sh` | Store RabbitMQ credentials in OpenBao KV v2 | Source path is `secret/data/messaging/rabbitmq` |
+| Seed app secret | `bash scripts/openbao/store-rabbitmq.sh` | Store RabbitMQ credentials in OpenBao KV v2 | Source path is `secret/data/messaging/rabbitmq` |
 | Activate ESO sync | `kubectl apply -k infrastructure/external-secrets/stores` | Create ClusterSecretStore/ExternalSecret resources | Run only after OpenBao is initialized, unsealed, and seeded |
 | Verify output | `kubectl get secret rabbitmq-credentials -n messaging` | Confirm Kubernetes Secret was generated by ESO | Restart RabbitMQ if it started before the Secret existed |
 
-Default credential behavior is secure by default: `openbao-bootstrap.sh` does **not** create a standing default admin user or default `ci-robot` AppRole unless `OPENBAO_CREATE_DEFAULT_ADMIN=true` or `OPENBAO_CREATE_DEFAULT_APPROLE=true` is set for that run.
+Default credential behavior is secure by default: `scripts/openbao/bootstrap.sh` does **not** create a standing default admin user or default `ci-robot` AppRole unless `OPENBAO_CREATE_DEFAULT_ADMIN=true` or `OPENBAO_CREATE_DEFAULT_APPROLE=true` is set for that run.
 
 Fresh cluster sequence:
 
@@ -283,7 +283,7 @@ Fresh cluster sequence:
    ```
 3. Initialize, unseal, enable KV v2, configure Kubernetes/userpass/AppRole auth, apply OpenBao policies, seed safe KV paths, and create the ESO Kubernetes auth role:
    ```bash
-   bash scripts/openbao-bootstrap.sh
+   bash scripts/openbao/bootstrap.sh
    ```
    The script stores sensitive bootstrap material under `.runtime-backups/openbao/`:
    - `.runtime-backups/openbao/root-token.txt`
@@ -299,11 +299,11 @@ Fresh cluster sequence:
    make openbao-create-approle ROLE=ci-robot POLICY=ci-deployer
    ```
 
-   `openbao-bootstrap.sh` does not create standing AppRole credentials by default. Set `OPENBAO_CREATE_DEFAULT_APPROLE=true` only when you intentionally want the default `ci-robot` role. After confirming a non-root admin user can perform required operations, secure or manually revoke the root token according to your recovery model.
+   `scripts/openbao/bootstrap.sh` does not create standing AppRole credentials by default. Set `OPENBAO_CREATE_DEFAULT_APPROLE=true` only when you intentionally want the default `ci-robot` role. After confirming a non-root admin user can perform required operations, secure or manually revoke the root token according to your recovery model.
 
 4. Store or migrate RabbitMQ credentials into OpenBao KV v2:
    ```bash
-   bash scripts/openbao-store-rabbitmq.sh
+   bash scripts/openbao/store-rabbitmq.sh
    ```
 5. Apply the ESO store resources after OpenBao has been bootstrapped:
    ```bash
@@ -324,12 +324,12 @@ Fresh cluster sequence:
 
 ### Troubleshooting First Run
 
-- `ClusterSecretStore/openbao` is not ready: confirm OpenBao is unsealed and `scripts/openbao-bootstrap.sh` completed successfully.
+- `ClusterSecretStore/openbao` is not ready: confirm OpenBao is unsealed and `scripts/openbao/bootstrap.sh` completed successfully.
 - ESO authentication fails: verify the bootstrap script configured `kubernetes_host=https://kubernetes.default.svc:443` and passed the Kubernetes service account CA as PEM.
-- File audit logging is skipped: add or verify a writable `/vault/audit` path in the OpenBao pod, then re-run `scripts/openbao-bootstrap.sh`.
-- Userpass or AppRole auth is missing: re-run `scripts/openbao-bootstrap.sh`; auth backend enablement is idempotent.
+- File audit logging is skipped: add or verify a writable `/vault/audit` path in the OpenBao pod, then re-run `scripts/openbao/bootstrap.sh`.
+- Userpass or AppRole auth is missing: re-run `scripts/openbao/bootstrap.sh`; auth backend enablement is idempotent.
 - OpenBao pod is crash-looping with `server gave HTTP response to HTTPS client`: confirm `infrastructure/openbao/values.yaml` uses `scheme: HTTP` for readiness/liveness probes and `tlsDisable: true`.
-- `rabbitmq-credentials` is missing: confirm `scripts/openbao-store-rabbitmq.sh` stored `secret/data/messaging/rabbitmq`, then reconcile the ESO store resources.
+- `rabbitmq-credentials` is missing: confirm `scripts/openbao/store-rabbitmq.sh` stored `secret/data/messaging/rabbitmq`, then reconcile the ESO store resources.
 - RabbitMQ is pending or crash-looping: create/sync `messaging/rabbitmq-credentials`, then restart the RabbitMQ deployment.
 
 ### Internal Access
@@ -361,14 +361,14 @@ Primary path: set `TAILSCALE_CLIENT_ID` and `TAILSCALE_CLIENT_SECRET` in `config
 make up
 ```
 
-When credentials are present, `setup.sh` creates the Tailscale namespace and OAuth Secret, installs the operator, annotates OpenBao, configures Tailscale Serve on proxy pods, and deploys the Serve watcher.
+When credentials are present, `scripts/cluster/setup.sh` creates the Tailscale namespace and OAuth Secret, installs the operator, annotates OpenBao, configures Tailscale Serve on proxy pods, and deploys the Serve watcher.
 
 Manual fallback/recovery path:
 
 ```bash
 make tailscale
-./scripts/configure-tailscale-serve.sh
-./tailscale/check-access.sh
+./scripts/tailscale/configure-serve.sh
+./scripts/tailscale/check-access.sh
 ```
 
 Use the manual path when you intentionally skipped Tailscale during `make up`, are repairing Serve configuration, or are recovering after a cluster rebuild. See `tailscale/README.md` for OAuth, Tailnet Lock, proxy signing, and identity recovery details.
@@ -397,31 +397,31 @@ If a full cluster rebuild is required, preserve the Tailscale Kubernetes identit
 
 ```bash
 make down
-./tailscale/restore-state.sh latest
+./scripts/tailscale/restore-state.sh latest
 make up
-./scripts/configure-tailscale-serve.sh
-./tailscale/check-access.sh
+./scripts/tailscale/configure-serve.sh
+./scripts/tailscale/check-access.sh
 ```
 
 If Tailscale devices were deleted manually in the Tailscale Admin Console, reset the stale Kubernetes identities and let the proxies register fresh:
 
 ```bash
-./tailscale/reset-proxies.sh
-./tailscale/sign-proxies.sh
-./scripts/configure-tailscale-serve.sh
-./tailscale/check-access.sh
+./scripts/tailscale/reset-proxies.sh
+./scripts/tailscale/sign-proxies.sh
+./scripts/tailscale/configure-serve.sh
+./scripts/tailscale/check-access.sh
 ```
 
 Tailnet Lock is enabled in this environment. Any newly registered Kubernetes proxy node must be signed before DNS/connectivity is fully available:
 
 ```bash
-./tailscale/sign-proxies.sh
+./scripts/tailscale/sign-proxies.sh
 ```
 
 For a VPS reboot, the cluster should recover as long as the container runtime, kind node, and host Tailscale daemon restart normally. The in-cluster Tailscale Serve watcher re-applies Serve config after proxy pod restarts. Run this check after reboot:
 
 ```bash
-./tailscale/check-access.sh
+./scripts/tailscale/check-access.sh
 ```
 
 For a full VPS rebuild/recreate, also preserve the host Tailscale identity from `/var/lib/tailscale` before deleting the VPS. Otherwise the VPS itself becomes a new Tailscale device.
@@ -442,7 +442,7 @@ This uses the same operator; no new infrastructure is needed.
 ## Tear Down
 To destroy the local infrastructure and free up resources, run the destroy script:
 ```bash
-./destroy.sh
+./scripts/cluster/destroy.sh
 ```
 
 ## Security Scanning Strategy
@@ -462,7 +462,7 @@ The project uses a **dual-scan approach** to balance early feedback with authori
 
 ### Running Scans Locally
 ```bash
-bash scripts/security-scan.sh
+bash scripts/security/scan.sh
 ```
 
 This script generates:
@@ -479,7 +479,7 @@ All report artifacts are excluded from Git via `.gitignore`.
 ### Scanner Versions
 All scanner images are pinned to specific versions for reproducible results. Override via environment variables if needed:
 ```bash
-TRIVY_IMAGE=ghcr.io/aquasecurity/trivy:0.70.0 bash scripts/security-scan.sh
+TRIVY_IMAGE=ghcr.io/aquasecurity/trivy:0.70.0 bash scripts/security/scan.sh
 ```
 
 ### Known False Positives

@@ -19,7 +19,7 @@ The preferred path is through the main lab setup entrypoint:
 make up
 ```
 
-When these values are present in `config.env`, `setup.sh` performs the Tailscale setup automatically:
+When these values are present in `config.env`, `scripts/cluster/setup.sh` performs the Tailscale setup automatically:
 
 ```bash
 TAILSCALE_CLIENT_ID="..."
@@ -34,7 +34,7 @@ Automated steps:
 4. Install the Tailscale Kubernetes Operator when missing.
 5. Annotate the main OpenBao Service for tailnet exposure.
 6. Wait for operator-managed proxy pods.
-7. Run `scripts/configure-tailscale-serve.sh` to configure HTTPS Serve behavior.
+7. Run `scripts/tailscale/configure-serve.sh` to configure HTTPS Serve behavior.
 8. Deploy `tailscale/serve-watcher.yaml` so Serve config is re-applied after proxy restarts.
 9. Print final setup/access guidance.
 
@@ -46,11 +46,11 @@ Use this when Tailscale credentials were not present during `make up`, or when y
 
 ```bash
 make tailscale
-./scripts/configure-tailscale-serve.sh
-./tailscale/check-access.sh
+./scripts/tailscale/configure-serve.sh
+./scripts/tailscale/check-access.sh
 ```
 
-`make tailscale` runs `tailscale/install-operator.sh`. Treat it as an advanced/manual path, not the default `make up` path.
+`make tailscale` runs `scripts/tailscale/install-operator.sh`. Treat it as an advanced/manual path, not the default `make up` path.
 
 ## Recovery and identity preservation
 
@@ -68,23 +68,23 @@ Prefer restoring identity before the operator starts in the rebuilt cluster:
 
 ```bash
 make down
-./tailscale/restore-state.sh latest
+./scripts/tailscale/restore-state.sh latest
 make up
-./scripts/configure-tailscale-serve.sh
-./tailscale/check-access.sh
+./scripts/tailscale/configure-serve.sh
+./scripts/tailscale/check-access.sh
 ```
 
-If local backups exist, `setup.sh` also prints warnings when it detects that the `tailscale` namespace or `operator` Secret is missing.
+If local backups exist, `scripts/cluster/setup.sh` also prints warnings when it detects that the `tailscale` namespace or `operator` Secret is missing.
 
 ### Stale or deleted Tailscale devices
 
 If Kubernetes proxy devices were deleted manually in the Tailscale Admin Console, reset stale Kubernetes identities and let proxies register fresh:
 
 ```bash
-./tailscale/reset-proxies.sh
-./tailscale/sign-proxies.sh --sudo
-./scripts/configure-tailscale-serve.sh
-./tailscale/check-access.sh
+./scripts/tailscale/reset-proxies.sh
+./scripts/tailscale/sign-proxies.sh --sudo
+./scripts/tailscale/configure-serve.sh
+./scripts/tailscale/check-access.sh
 ```
 
 ### Tailnet Lock
@@ -94,7 +94,7 @@ If Tailnet Lock is enabled, newly registered Kubernetes proxy nodes must be sign
 ```bash
 make tailscale-sign
 # or
-./tailscale/sign-proxies.sh --sudo
+./scripts/tailscale/sign-proxies.sh --sudo
 ```
 
 ## Verification commands
@@ -121,13 +121,13 @@ kubectl get svc -A -o jsonpath='{range .items[?(@.metadata.annotations.tailscale
 Run the project access check:
 
 ```bash
-./tailscale/check-access.sh
+./scripts/tailscale/check-access.sh
 ```
 
 Re-apply Serve config if proxy pods were recreated:
 
 ```bash
-./scripts/configure-tailscale-serve.sh
+./scripts/tailscale/configure-serve.sh
 ```
 
 ## Expected URLs

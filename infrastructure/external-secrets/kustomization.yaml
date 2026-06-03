@@ -9,6 +9,6 @@ resources:
 # Intentionally exclude stores/ from the default infrastructure phase.
 # ClusterSecretStore and ExternalSecret depend on manual OpenBao init/unseal,
 # Kubernetes auth bootstrap, and the RabbitMQ secret being written to OpenBao.
-# Apply after running scripts/openbao-bootstrap.sh and
-# scripts/openbao-store-rabbitmq.sh:
+# Apply after running scripts/openbao/bootstrap.sh and
+# scripts/openbao/store-rabbitmq.sh:
 #   kubectl apply -k infrastructure/external-secrets/stores

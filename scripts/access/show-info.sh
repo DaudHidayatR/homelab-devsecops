@@ -5,7 +5,8 @@ set -eo pipefail
 # Principle: SRP — this script has one reason to change: how users access services.
 # setup.sh has one reason to change: infrastructure orchestration.
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+# shellcheck source=/dev/null
 source "${SCRIPT_DIR}/config.env"
 
 cat <<EOF

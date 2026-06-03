@@ -2,7 +2,7 @@
 
 This directory holds policies for Kyverno, Conftest (Open Policy Agent / Rego), and OpenBao.
 Kyverno and Conftest policies are consumed by the IaC Security Pipeline (`IaC.yml`) and the App Security Pipeline (`apps.yml`) deploy-scan jobs.
-OpenBao policies are applied by `scripts/openbao-bootstrap.sh` and `scripts/openbao-apply-policies.sh`.
+OpenBao policies are applied by `scripts/openbao/bootstrap.sh` and `scripts/openbao/apply-policies.sh`.
 
 ## OpenBao Policies
 
@@ -43,7 +43,7 @@ make openbao-policies
 Or enable the optional GitHub OIDC role while applying:
 
 ```bash
-GITHUB_REPOSITORY=owner/repo bash scripts/openbao-apply-policies.sh --enable-jwt
+GITHUB_REPOSITORY=owner/repo bash scripts/openbao/apply-policies.sh --enable-jwt
 ```
 
 Best practice for this repository: keep OpenBao policies in these HCL files as the source of truth, apply them through scripts, and use the OpenBao UI only for verification/debugging.
@@ -56,12 +56,12 @@ Principal mapping is intentionally explicit:
 
 | Mapping type | Where it is managed | Why |
 |---|---|---|
-| Human userpass users | `scripts/openbao-create-user.sh` | User creation needs a password, identity alias, metadata, and optional SSH role |
-| Machine/CI AppRoles | `scripts/openbao-create-approle.sh` | AppRole creation emits sensitive RoleID / wrapped SecretID material |
-| Kubernetes service-account roles | `scripts/openbao-apply-policies.sh` | A policy file alone should not silently grant a Kubernetes principal access |
-| ESO reader role | `scripts/openbao-bootstrap.sh` and reconciled policy scripts | ESO needs bootstrap-time access after OpenBao is initialized/unsealed |
+| Human userpass users | `scripts/openbao/create-user.sh` | User creation needs a password, identity alias, metadata, and optional SSH role |
+| Machine/CI AppRoles | `scripts/openbao/create-approle.sh` | AppRole creation emits sensitive RoleID / wrapped SecretID material |
+| Kubernetes service-account roles | `scripts/openbao/apply-policies.sh` | A policy file alone should not silently grant a Kubernetes principal access |
+| ESO reader role | `scripts/openbao/bootstrap.sh` and reconciled policy scripts | ESO needs bootstrap-time access after OpenBao is initialized/unsealed |
 
-The mapping table in `scripts/openbao-apply-policies.sh` is deliberately reviewable Bash data. If it is ever moved to YAML/env metadata, preserve the same explicit review model and validate that every mapped policy has a corresponding `policies/openbao/*.hcl` file.
+The mapping table in `scripts/openbao/apply-policies.sh` is deliberately reviewable Bash data. If it is ever moved to YAML/env metadata, preserve the same explicit review model and validate that every mapped policy has a corresponding `policies/openbao/*.hcl` file.
 
 ### Operational sequence
 
@@ -70,9 +70,9 @@ For a fresh cluster, apply OpenBao policy behavior in this order:
 ```bash
 make up
 kubectl wait --for=condition=Ready pod/openbao-0 -n openbao --timeout=300s
-bash scripts/openbao-bootstrap.sh
+bash scripts/openbao/bootstrap.sh
 make openbao-policies
-bash scripts/openbao-store-rabbitmq.sh
+bash scripts/openbao/store-rabbitmq.sh
 kubectl apply -k infrastructure/external-secrets/stores
 ```
 

@@ -6,21 +6,24 @@
 # identity entities are updated in place, and auth roles are overwritten.
 #
 # Usage:
-#   bash scripts/openbao-apply-policies.sh
+#   bash scripts/openbao/apply-policies.sh
 #
 # Optional:
-#   OPENBAO_TOKEN=<token> bash scripts/openbao-apply-policies.sh
-#   GITHUB_REPOSITORY=owner/repo bash scripts/openbao-apply-policies.sh --enable-jwt
+#   OPENBAO_TOKEN=<token> bash scripts/openbao/apply-policies.sh
+#   GITHUB_REPOSITORY=owner/repo bash scripts/openbao/apply-policies.sh --enable-jwt
 
-set -eo pipefail
+set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="${SCRIPT_DIR}/.."
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+
+# shellcheck source=scripts/lib/common.sh
+source "${PROJECT_ROOT}/scripts/lib/common.sh"
+common::load_config "${PROJECT_ROOT}/config.env"
+# shellcheck source=scripts/lib/openbao.sh
+source "${PROJECT_ROOT}/scripts/lib/openbao.sh"
+
 POLICY_DIR="${PROJECT_ROOT}/policies/openbao"
-BACKUP_DIR="${PROJECT_ROOT}/.runtime-backups/openbao"
-INIT_JSON="${PROJECT_ROOT}/openbao-init.json"
-OPENBAO_POD="openbao-0"
-OPENBAO_NS="openbao"
 REMOTE_POLICY_DIR="/tmp/openbao-policies"
 ENABLE_JWT="false"
 SSH_ROLE_NAME="admin"
@@ -46,46 +49,15 @@ if [ "${1:-}" = "--enable-jwt" ]; then
 fi
 
 _bao_exec() {
-  kubectl exec -n "$OPENBAO_NS" "$OPENBAO_POD" -- sh -c "
-    export BAO_ADDR='http://127.0.0.1:8200'
-    export BAO_TOKEN='${ROOT_TOKEN}'
-    $*"
+  openbao::exec "$@"
 }
 
 _bao_exec_quiet() {
-  _bao_exec "$@" 2>/dev/null || true
+  openbao::exec_quiet "$@"
 }
 
 require_file() {
-  if [ ! -f "$1" ]; then
-    echo "ERROR: Required file not found: $1"
-    exit 1
-  fi
-}
-
-load_root_token() {
-  if [ -n "${OPENBAO_TOKEN:-}" ]; then
-    printf '%s' "$OPENBAO_TOKEN"
-    return
-  fi
-
-  if [ -f "$BACKUP_DIR/root-token.txt" ]; then
-    tr -d '\n' < "$BACKUP_DIR/root-token.txt"
-    return
-  fi
-
-  if [ -f "$INIT_JSON" ]; then
-    python3 - <<PY
-import json
-from pathlib import Path
-print(json.loads(Path("$INIT_JSON").read_text())["root_token"], end="")
-PY
-    return
-  fi
-
-  echo "ERROR: OpenBao token not provided." >&2
-  echo "Set OPENBAO_TOKEN, restore $BACKUP_DIR/root-token.txt, or provide $INIT_JSON." >&2
-  exit 1
+  common::require_file "$1"
 }
 
 policy_exists_in_repo() {
@@ -163,7 +135,7 @@ require_file "$POLICY_DIR/ci-deployer.hcl"
 require_file "$POLICY_DIR/app-demo.hcl"
 require_file "$POLICY_DIR/tailscale-operator.hcl"
 
-ROOT_TOKEN="$(load_root_token)"
+ROOT_TOKEN="$(openbao::load_root_token)"
 
 # Verify authentication without printing or storing the token in OpenBao CLI config.
 _bao_exec "bao token lookup >/dev/null"
@@ -252,7 +224,7 @@ if [ "$ENABLE_JWT" = "true" ]; then
   echo ""
 else
   echo "=== Skipping GitHub OIDC JWT auth ==="
-  echo "  Run with: GITHUB_REPOSITORY=owner/repo bash scripts/openbao-apply-policies.sh --enable-jwt"
+  echo "  Run with: GITHUB_REPOSITORY=owner/repo bash scripts/openbao/apply-policies.sh --enable-jwt"
   echo ""
 fi
 

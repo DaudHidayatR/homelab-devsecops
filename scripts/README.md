@@ -16,13 +16,13 @@ make up
 kubectl wait --for=condition=Ready pod/openbao-0 -n openbao --timeout=300s
 
 # 3. Initialize/unseal OpenBao and configure baseline engines/auth/policies.
-bash scripts/openbao-bootstrap.sh
+bash scripts/openbao/bootstrap.sh
 
 # 4. Reconcile OpenBao policies and identity mappings when needed.
 make openbao-policies
 
 # 5. Store application secrets in OpenBao.
-bash scripts/openbao-store-rabbitmq.sh
+bash scripts/openbao/store-rabbitmq.sh
 
 # 6. Apply ESO resources that depend on bootstrapped OpenBao.
 kubectl apply -k infrastructure/external-secrets/stores
@@ -40,12 +40,12 @@ make access-info
 
 Lifecycle:
 
-1. `setup.sh` / `make up` deploys OpenBao and creates the `openbao-tls` Kubernetes Secret used by lab access integration.
-2. `openbao-bootstrap.sh` initializes OpenBao if needed, unseals it, enables required engines/auth methods, writes baseline policies, and creates the ESO Kubernetes auth role.
-3. `openbao-apply-policies.sh` is the repeatable policy reconciliation entrypoint for `policies/openbao/*.hcl` and explicit Kubernetes identity mappings.
-4. `openbao-create-user.sh` creates human `userpass` users and optional per-user SSH signing roles.
-5. `openbao-create-approle.sh` creates machine/CI AppRoles with response-wrapped single-use SecretIDs.
-6. `openbao-store-rabbitmq.sh` writes RabbitMQ credentials into OpenBao KV v2.
+1. `scripts/cluster/setup.sh` / `make up` deploys OpenBao and creates the `openbao-tls` Kubernetes Secret used by lab access integration.
+2. `scripts/openbao/bootstrap.sh` initializes OpenBao if needed, unseals it, enables required engines/auth methods, writes baseline policies, and creates the ESO Kubernetes auth role.
+3. `scripts/openbao/apply-policies.sh` is the repeatable policy reconciliation entrypoint for `policies/openbao/*.hcl` and explicit Kubernetes identity mappings.
+4. `scripts/openbao/create-user.sh` creates human `userpass` users and optional per-user SSH signing roles.
+5. `scripts/openbao/create-approle.sh` creates machine/CI AppRoles with response-wrapped single-use SecretIDs.
+6. `scripts/openbao/store-rabbitmq.sh` writes RabbitMQ credentials into OpenBao KV v2.
 7. `kubectl apply -k infrastructure/external-secrets/stores` creates the `ClusterSecretStore` and `ExternalSecret` resources that sync from OpenBao into Kubernetes Secrets.
 
 ### Default user and AppRole behavior
@@ -62,8 +62,8 @@ make openbao-create-approle ROLE=ci-robot POLICY=ci-deployer
 Optional bootstrap defaults are opt-in only:
 
 ```bash
-OPENBAO_CREATE_DEFAULT_ADMIN=true bash scripts/openbao-bootstrap.sh
-OPENBAO_CREATE_DEFAULT_APPROLE=true bash scripts/openbao-bootstrap.sh
+OPENBAO_CREATE_DEFAULT_ADMIN=true bash scripts/openbao/bootstrap.sh
+OPENBAO_CREATE_DEFAULT_APPROLE=true bash scripts/openbao/bootstrap.sh
 ```
 
 Use these flags only when you intentionally want bootstrap to create default credentials. Prefer named users/AppRoles for normal operation.
@@ -82,26 +82,26 @@ Examples include root token backup, unseal key backup, AppRole RoleID files, and
 
 | Script | Phase | Purpose | Safe to rerun | Requires OpenBao token/root backup | Creates or stores secrets | Verification |
 |---|---|---|---:|---:|---:|---|
-| `openbao-bootstrap.sh` | First-run OpenBao | Initialize/unseal OpenBao; enable KV v2, SSH signer, Kubernetes auth, userpass, AppRole; apply baseline policies; create ESO role | Mostly | Uses generated/restored root material | Yes | `make openbao-status` |
-| `openbao-apply-policies.sh` | OpenBao reconciliation | Apply `policies/openbao/*.hcl` and explicit Kubernetes auth/entity/alias mappings | Yes | Yes, or `OPENBAO_TOKEN` | No | `kubectl exec -n openbao openbao-0 -- sh -c 'BAO_ADDR=http://127.0.0.1:8200 bao policy list'` |
-| `openbao-create-user.sh` | Human access | Create/update userpass user, identity entity/alias, profile metadata, optional SSH role | Yes | Yes, or admin token | Yes | `make openbao-status` then login with userpass |
-| `openbao-create-approle.sh` | Machine/CI access | Create/update AppRole with short-lived token and response-wrapped single-use SecretID | Yes | Yes, or admin token | Yes | `ls .runtime-backups/openbao/approles/` |
-| `openbao-store-rabbitmq.sh` | App secret seed | Store RabbitMQ credentials at `secret/data/messaging/rabbitmq` | Yes | Yes, or admin token | Yes | `kubectl get secret rabbitmq-credentials -n messaging` after ESO sync |
-| `openbao-status.sh` | Diagnostics | Show pod, seal, auth, policy, and backup status | Yes | Optional | No | Script output |
-| `configure-tailscale-serve.sh` | Tailscale access | Configure Tailscale Serve on Kubernetes proxy pods | Yes | No | No | `./tailscale/check-access.sh` |
-| `show-access-info.sh` | Access info | Print local and tailnet URLs plus post-setup reminders | Yes | No | No | Script output |
-| `security-scan.sh` | Security validation | Run local scanner suite through containers and validate generated reports | Yes | No | No | `make validate` |
-| `auto-purge-secret.sh` | Emergency Git cleanup | Rewrite Git history to remove leaked secrets, with Gitleaks-assisted discovery | Destructive; use with care | No | No | Gitleaks clean scan |
-| `purge-secret-history.sh` | Legacy Git cleanup | Basic older secret-history purge helper | Destructive; use with care | No | No | Manual history verification |
+| `scripts/openbao/bootstrap.sh` | First-run OpenBao | Initialize/unseal OpenBao; enable KV v2, SSH signer, Kubernetes auth, userpass, AppRole; apply baseline policies; create ESO role | Mostly | Uses generated/restored root material | Yes | `make openbao-status` |
+| `scripts/openbao/apply-policies.sh` | OpenBao reconciliation | Apply `policies/openbao/*.hcl` and explicit Kubernetes auth/entity/alias mappings | Yes | Yes, or `OPENBAO_TOKEN` | No | `kubectl exec -n openbao openbao-0 -- sh -c 'BAO_ADDR=http://127.0.0.1:8200 bao policy list'` |
+| `scripts/openbao/create-user.sh` | Human access | Create/update userpass user, identity entity/alias, profile metadata, optional SSH role | Yes | Yes, or admin token | Yes | `make openbao-status` then login with userpass |
+| `scripts/openbao/create-approle.sh` | Machine/CI access | Create/update AppRole with short-lived token and response-wrapped single-use SecretID | Yes | Yes, or admin token | Yes | `ls .runtime-backups/openbao/approles/` |
+| `scripts/openbao/store-rabbitmq.sh` | App secret seed | Store RabbitMQ credentials at `secret/data/messaging/rabbitmq` | Yes | Yes, or admin token | Yes | `kubectl get secret rabbitmq-credentials -n messaging` after ESO sync |
+| `scripts/openbao/status.sh` | Diagnostics | Show pod, seal, auth, policy, and backup status | Yes | Optional | No | Script output |
+| `scripts/tailscale/configure-serve.sh` | Tailscale access | Configure Tailscale Serve on Kubernetes proxy pods | Yes | No | No | `./scripts/tailscale/check-access.sh` |
+| `scripts/access/show-info.sh` | Access info | Print local and tailnet URLs plus post-setup reminders | Yes | No | No | Script output |
+| `scripts/security/scan.sh` | Security validation | Run local scanner suite through containers and validate generated reports | Yes | No | No | `make validate` |
+| `scripts/git/auto-purge-secret.sh` | Emergency Git cleanup | Rewrite Git history to remove leaked secrets, with Gitleaks-assisted discovery | Destructive; use with care | No | No | Gitleaks clean scan |
+| `scripts/git/purge-secret-history.sh` | Legacy Git cleanup | Basic older secret-history purge helper | Destructive; use with care | No | No | Manual history verification |
 
 ## OpenBao script details
 
-### `openbao-bootstrap.sh`
+### `scripts/openbao/bootstrap.sh`
 
 Use after `make up` has deployed the OpenBao pod.
 
 ```bash
-bash scripts/openbao-bootstrap.sh
+bash scripts/openbao/bootstrap.sh
 ```
 
 Main effects:
@@ -124,14 +124,14 @@ Useful environment flags:
 | `OPENBAO_CREATE_DEFAULT_ADMIN` | unset/false | Create an opt-in default admin user during bootstrap |
 | `OPENBAO_CREATE_DEFAULT_APPROLE` | unset/false | Create an opt-in default `ci-robot` AppRole during bootstrap |
 
-### `openbao-apply-policies.sh`
+### `scripts/openbao/apply-policies.sh`
 
 Use for repeatable policy-as-code reconciliation.
 
 ```bash
 make openbao-policies
 # or
-OPENBAO_TOKEN=<token> bash scripts/openbao-apply-policies.sh
+OPENBAO_TOKEN=<token> bash scripts/openbao/apply-policies.sh
 ```
 
 Important behavior:
@@ -141,14 +141,14 @@ Important behavior:
 - A policy file alone does not automatically create a Kubernetes principal.
 - Re-running is expected after policy changes.
 
-### `openbao-create-user.sh`
+### `scripts/openbao/create-user.sh`
 
 Use for human access.
 
 ```bash
 make openbao-create-user USER=alice PASSWORD='change-me' POLICY=default-user SSH=true
 # or
-bash scripts/openbao-create-user.sh alice 'change-me' default-user --ssh
+bash scripts/openbao/create-user.sh alice 'change-me' default-user --ssh
 ```
 
 Behavior:
@@ -159,14 +159,14 @@ Behavior:
 - stores non-sensitive profile metadata in KV
 - optionally creates a per-user SSH signing role when `SSH=true` / `--ssh` is used
 
-### `openbao-create-approle.sh`
+### `scripts/openbao/create-approle.sh`
 
 Use for machine, CI, or automation access.
 
 ```bash
 make openbao-create-approle ROLE=ci-robot POLICY=ci-deployer
 # or
-bash scripts/openbao-create-approle.sh ci-robot ci-deployer
+bash scripts/openbao/create-approle.sh ci-robot ci-deployer
 ```
 
 Behavior:
@@ -179,12 +179,12 @@ Behavior:
 
 Treat wrapped SecretID tokens as secrets. They are time-bound and should be delivered only to the intended automation system.
 
-### `openbao-store-rabbitmq.sh`
+### `scripts/openbao/store-rabbitmq.sh`
 
 Use after OpenBao is initialized/unsealed and before applying the ESO store resources.
 
 ```bash
-bash scripts/openbao-store-rabbitmq.sh
+bash scripts/openbao/store-rabbitmq.sh
 kubectl apply -k infrastructure/external-secrets/stores
 ```
 
@@ -201,30 +201,29 @@ Do not manually edit generated Kubernetes Secrets for long-term changes; update 
 | Symptom | Check |
 |---|---|
 | `ClusterSecretStore/openbao` is not ready | Confirm OpenBao is unsealed: `make openbao-status` |
-| ESO auth fails | Re-run `bash scripts/openbao-bootstrap.sh` and `make openbao-policies` |
-| RabbitMQ Secret missing | Confirm `openbao-store-rabbitmq.sh` completed, then re-apply `infrastructure/external-secrets/stores` |
-| RabbitMQ pod crash-loops | Wait for `messaging/rabbitmq-credentials`, then run `kubectl rollout restart deployment/rabbitmq -n messaging` |
+| ESO auth fails | Re-run `bash scripts/openbao/bootstrap.sh` and `make openbao-policies` |
+| RabbitMQ Secret missing | Confirm `scripts/openbao/store-rabbitmq.sh` completed, then re-apply `infrastructure/external-secrets/stores` |
 | Policy denied errors | Confirm the ESO Kubernetes auth role points at the expected service account/namespace |
 
 ## Tailscale access helpers
 
-`setup.sh` is the primary path for Tailscale when credentials are present in `config.env`:
+`scripts/cluster/setup.sh` is the primary path for Tailscale when credentials are present in `config.env`:
 
 ```text
 TAILSCALE_CLIENT_ID
 TAILSCALE_CLIENT_SECRET
 ```
 
-When enabled, setup creates the OAuth Secret, installs the operator, annotates the OpenBao service, configures Tailscale Serve through `configure-tailscale-serve.sh`, and deploys the Serve watcher.
+When enabled, setup creates the OAuth Secret, installs the operator, annotates the OpenBao service, configures Tailscale Serve through `scripts/tailscale/configure-serve.sh`, and deploys the Serve watcher.
 
-Manual/recovery helpers live mostly in `tailscale/`:
+Manual/recovery helpers live mostly in `scripts/tailscale/`:
 
 ```bash
-./tailscale/restore-state.sh latest
-./tailscale/reset-proxies.sh
-./tailscale/sign-proxies.sh --sudo
-./tailscale/check-access.sh
-./scripts/configure-tailscale-serve.sh
+./scripts/tailscale/restore-state.sh latest
+./scripts/tailscale/reset-proxies.sh
+./scripts/tailscale/sign-proxies.sh --sudo
+./scripts/tailscale/check-access.sh
+./scripts/tailscale/configure-serve.sh
 ```
 
 Use the recovery path before or immediately after a full cluster rebuild to avoid duplicate Tailscale operator/proxy devices.

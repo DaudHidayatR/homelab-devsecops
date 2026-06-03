@@ -7,43 +7,43 @@
 #   Wait for it:  kubectl wait --for=condition=Ready pod/openbao-0 -n openbao --timeout=300s
 #
 # Usage:
-#   bash scripts/openbao-bootstrap.sh
+#   bash scripts/openbao/bootstrap.sh
 
-set -eo pipefail
+set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BACKUP_DIR="${SCRIPT_DIR}/../.runtime-backups/openbao"
-POLICY_DIR="${SCRIPT_DIR}/../policies/openbao"
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+
+# shellcheck source=scripts/lib/common.sh
+source "${PROJECT_ROOT}/scripts/lib/common.sh"
+common::load_config "${PROJECT_ROOT}/config.env"
+# shellcheck source=scripts/lib/openbao.sh
+source "${PROJECT_ROOT}/scripts/lib/openbao.sh"
+
+BACKUP_DIR="${OPENBAO_BACKUP_DIR}"
+POLICY_DIR="${PROJECT_ROOT}/policies/openbao"
 REMOTE_POLICY_DIR="/tmp/openbao-policies"
-OPENBAO_POD="openbao-0"
-OPENBAO_NS="openbao"
-ESO_NS="external-secrets"
-ESO_SA="external-secrets"
+ESO_NS="${ESO_NAMESPACE:-external-secrets}"
+ESO_SA="${ESO_SERVICE_ACCOUNT:-external-secrets}"
 
 mkdir -p "$BACKUP_DIR"
 
 # ── Helpers ────────────────────────────────────────────────────────────
 
 _bao_exec() {
-  kubectl exec -n "$OPENBAO_NS" "$OPENBAO_POD" -- sh -c "
-    export BAO_ADDR='http://127.0.0.1:8200'
-    $*"
+  openbao::exec "$@"
 }
 
 _bao_exec_quiet() {
-  _bao_exec "$@" 2>/dev/null || true
+  openbao::exec_quiet "$@"
 }
 
 _is_initialized() {
-  local status
-  status=$(_bao_exec_quiet "bao status -format=json" | python3 -c "import json,sys; print(json.load(sys.stdin).get('initialized',False))" 2>/dev/null || echo "False")
-  [ "$status" = "True" ]
+  openbao::is_initialized
 }
 
 _is_sealed() {
-  local sealed
-  sealed=$(_bao_exec_quiet "bao status -format=json" | python3 -c "import json,sys; print(json.load(sys.stdin).get('sealed',True))" 2>/dev/null || echo "True")
-  [ "$sealed" = "True" ]
+  openbao::is_sealed
 }
 
 # ── 1. Wait for pod readiness ──────────────────────────────────────────
@@ -291,7 +291,7 @@ if [ "${OPENBAO_CREATE_DEFAULT_APPROLE:-false}" = "true" ]; then
   echo ""
   echo "=== Ensuring default ci-robot AppRole ==="
   _bao_exec "bao write auth/approle/role/ci-robot token_policies=ci-deployer token_ttl=30m token_max_ttl=2h secret_id_ttl=30m secret_id_num_uses=1" >/dev/null
-  echo "  Default ci-robot AppRole configured. Generate wrapped SecretID with scripts/openbao-create-approle.sh."
+  echo "  Default ci-robot AppRole configured. Generate wrapped SecretID with scripts/openbao/create-approle.sh."
 else
   echo ""
   echo "=== Skipping default ci-robot AppRole ==="
@@ -327,11 +327,11 @@ echo "  Role:            kubernetes/eso-reader"
 echo "    → bound to SA: $ESO_SA in namespace $ESO_NS"
 echo ""
 echo "  Optional next steps:"
-echo "    - Create admin user: OPENBAO_CREATE_DEFAULT_ADMIN=true bash scripts/openbao-bootstrap.sh"
-echo "    - Create AppRole:    bash scripts/openbao-create-approle.sh ci-robot ci-deployer"
+echo "    - Create admin user: OPENBAO_CREATE_DEFAULT_ADMIN=true bash scripts/openbao/bootstrap.sh"
+echo "    - Create AppRole:    bash scripts/openbao/create-approle.sh ci-robot ci-deployer"
 echo "    - After verifying a non-root admin login, secure or revoke the root token manually."
 echo ""
 echo "  Next steps:"
-echo "    1. Run: bash scripts/openbao-store-rabbitmq.sh"
+echo "    1. Run: bash scripts/openbao/store-rabbitmq.sh"
 echo "    2. Reconcile ExternalSecret resources: kubectl apply -k infrastructure/external-secrets/stores"
 echo "    3. Verify: kubectl get externalsecret -A"

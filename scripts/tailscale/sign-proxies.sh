@@ -50,7 +50,7 @@ for pod in "${PROXY_PODS[@]}"; do
     SIGNED=$((SIGNED + 1))
     echo "  Signed."
   else
-    echo "  Signing failed. If access is denied, rerun: ./tailscale/sign-proxies.sh --sudo"
+    echo "  Signing failed. If access is denied, rerun: ./scripts/tailscale/sign-proxies.sh --sudo"
     NEEDS_SUDO=1
   fi
 done
