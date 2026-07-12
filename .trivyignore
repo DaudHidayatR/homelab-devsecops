@@ -2,12 +2,3 @@
 # Raw-file scanning reports false positives; rendered-manifest scanning is authoritative.
 KSV-0014
 KSV-0118
-# KSV053: tailscale-serve-watcher legitimately needs pods/exec on the tailscale
-# namespace to run 'tailscale serve status' and 'tailscale serve --bg' inside proxy
-# pods. RBAC is namespace-scoped (Role, not ClusterRole) with a runtime label filter
-# (tailscale.com/managed=true). See tailscale/serve-watcher.yaml:20-34.
-KSV053
-# config.env contains hardcoded credentials for local development only.
-# The file is in .gitignore and should never be committed.
-config.env
-config.env:10

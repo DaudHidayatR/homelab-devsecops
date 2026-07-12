@@ -1,4 +1,4 @@
-.PHONY: up down scan tailscale tailscale-reset tailscale-sign tailscale-check status access-info help validate-kustomize sync redeploy flux-status flux-diff security sast secrets sca sbom iac validate clean prune-branches prune-branches-force tag openbao-policies openbao-status openbao-create-user openbao-create-approle lint-sh fmt-sh check-sh syntax-sh
+.PHONY: up down recover scan tailscale tailscale-reset tailscale-sign tailscale-check status access-info help validate-kustomize sync redeploy flux-status flux-diff security sast secrets sca sbom iac validate clean prune-branches prune-branches-force tag openbao-policies openbao-status openbao-create-user openbao-create-approle lint-sh fmt-sh check-sh syntax-sh
 
 up:
 	./scripts/cluster/setup.sh
@@ -21,6 +21,10 @@ tailscale-sign:
 tailscale-check:
 	./scripts/tailscale/check-access.sh
 
+recover:
+	@if [ -z "$$BACKUP_DIR" ]; then echo "Usage: BACKUP_DIR=<validated-backup-directory> make recover" >&2; exit 1; fi
+	@bash scripts/cluster/recover.sh "$$BACKUP_DIR"
+
 status:
 	kubectl get pods -A
 
@@ -34,11 +38,11 @@ openbao-status:
 	bash scripts/openbao/status.sh
 
 openbao-create-user:
-	@if [ -z "$(USER)" ] || [ -z "$(PASSWORD)" ]; then \
-		echo "Usage: make openbao-create-user USER=<username> PASSWORD=<password> [POLICY=user-default[,system-admin,user-ssh]] [SSH=true]"; \
+	@if [ -z "$$OPENBAO_USER" ] || [ -z "$$OPENBAO_PASSWORD" ]; then \
+		echo "Usage: OPENBAO_USER=<username> OPENBAO_PASSWORD=<password> [OPENBAO_POLICY=user-default] [OPENBAO_SSH=true] make openbao-create-user"; \
 		exit 1; \
 	fi
-	bash scripts/openbao/create-user.sh "$(USER)" "$(PASSWORD)" "$(or $(POLICY),user-default)" $(if $(filter true,$(SSH)),--ssh,)
+	@bash scripts/openbao/create-user.sh
 
 openbao-create-approle:
 	@if [ -z "$(ROLE)" ] || [ -z "$(POLICY)" ]; then \
@@ -68,15 +72,13 @@ validate-kustomize:
 	kubectl kustomize infrastructure/external-secrets >/dev/null && echo "  ✓ infrastructure/external-secrets valid"
 
 sync:
-	@if command -v flux >/dev/null 2>&1 && kubectl get namespace flux-system >/dev/null 2>&1; then \
-		echo "Triggering Flux reconciliation..."; \
-		flux reconcile source git flux-system; \
-		flux reconcile kustomization infrastructure; \
-		flux reconcile kustomization apps; \
-	else \
-		echo "Flux CLI or flux-system namespace not available; applying apps overlay with kubectl."; \
-		kubectl apply -k apps; \
-	fi
+	@command -v flux >/dev/null 2>&1 || { echo "Flux CLI is required for sync" >&2; exit 1; }
+	@flux check
+	@test "$$(kubectl get gitrepository flux-system -n flux-system -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}')" = True || { echo "Flux GitRepository flux-system is not Ready" >&2; exit 1; }
+	@echo "Triggering Flux reconciliation..."
+	@flux reconcile source git flux-system
+	@flux reconcile kustomization infrastructure
+	@flux reconcile kustomization apps
 
 redeploy: sync
 	@echo "Safe app redeploy complete. Cluster and Tailscale state were preserved."
@@ -94,15 +96,13 @@ security: ## Run full security scan suite
 	@bash scripts/security/scan.sh
 
 sast: ## Run SAST only (Semgrep + Checkov)
-	@bash scripts/security/scan.sh semgrep
-	@bash scripts/security/scan.sh checkov
+	@status=0; bash scripts/security/scan.sh semgrep || status=1; bash scripts/security/scan.sh checkov || status=1; exit $$status
 
 secrets: ## Run secret detection only (GitLeaks)
 	@bash scripts/security/scan.sh gitleaks
 
 sca: ## Run SCA only (Trivy + Grype)
-	@bash scripts/security/scan.sh trivy
-	@bash scripts/security/scan.sh grype
+	@status=0; bash scripts/security/scan.sh trivy || status=1; bash scripts/security/scan.sh grype || status=1; exit $$status
 
 sbom: ## Generate SBOMs only (Syft)
 	@bash scripts/security/scan.sh syft
@@ -173,6 +173,7 @@ help: ## Show this help
 	@echo "Available targets:"
 	@echo "  make up                  - Deploy the full kind cluster and all components"
 	@echo "  make down                - Tear down the kind cluster (backs up Tailscale state first)"
+	@echo "  BACKUP_DIR=<path> make recover - Rebuild and restore Tailscale identity before operator startup"
 	@echo "  make redeploy            - Safely redeploy apps via Flux without destroying Tailscale state"
 	@echo "  make scan                - Run the security scanner suite"
 	@echo "  make tailscale           - Install the Tailscale Kubernetes Operator"

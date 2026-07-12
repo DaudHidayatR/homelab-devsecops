@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+umask 077
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
@@ -11,9 +12,19 @@ if ! kubectl get namespace tailscale &>/dev/null; then
   exit 0
 fi
 
-mkdir -p "$BACKUP_DIR"
-kubectl get secrets -n tailscale -o yaml > "${BACKUP_DIR}/all-secrets.yaml"
-echo "Backed up tailscale Secrets to: ${BACKUP_DIR}/all-secrets.yaml"
+install -d -m 0700 "$BACKUP_DIR"
+temp="$(mktemp "${BACKUP_DIR}/all-secrets.json.tmp.XXXXXX")"
+chmod 0600 "$temp"
+kubectl get secrets -n tailscale -o json > "$temp"
+python3 - "$temp" <<'PY'
+import json, sys
+with open(sys.argv[1]) as f:
+    doc = json.load(f)
+if not isinstance(doc, dict) or doc.get('kind') != 'List':
+    raise SystemExit('invalid Kubernetes SecretList backup')
+PY
+mv "$temp" "${BACKUP_DIR}/all-secrets.json"
+echo "Backed up tailscale Secrets to: ${BACKUP_DIR}/all-secrets.json"
 
 mapfile -t PROXY_SECRETS < <(kubectl get secrets -n tailscale -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' | grep '^ts-' || true)
 

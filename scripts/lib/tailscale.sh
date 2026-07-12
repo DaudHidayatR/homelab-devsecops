@@ -17,22 +17,14 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/kubernetes.sh"
 : "${TAILSCALE_OPERATOR_OAUTH_SECRET:=operator-oauth}"
 : "${TAILSCALE_OPERATOR_VERSION:=v1.96.4}"
 : "${TAILSCALE_BACKUP_DIR:=${COMMON_REPO_ROOT}/.runtime-backups/tailscale}"
-: "${TAILSCALE_SERVE_WATCHER_MANIFEST:=${COMMON_REPO_ROOT}/tailscale/serve-watcher.yaml}"
 TAILSCALE_BACKUP_DIR="$(common::abs_path "${TAILSCALE_BACKUP_DIR}")"
-TAILSCALE_SERVE_WATCHER_MANIFEST="$(common::abs_path "${TAILSCALE_SERVE_WATCHER_MANIFEST}")"
 
 tailscale::operator_manifest_url() {
   printf 'https://raw.githubusercontent.com/tailscale/tailscale/%s/cmd/k8s-operator/deploy/manifests/operator.yaml\n' "${TAILSCALE_OPERATOR_VERSION}"
 }
 
 tailscale::ensure_namespace() {
-  if ! k8s::namespace_exists "${TAILSCALE_NAMESPACE}"; then
-    if [[ -d "${TAILSCALE_BACKUP_DIR}" ]]; then
-      log::warn "${TAILSCALE_NAMESPACE} namespace is missing, but local Tailscale backups exist under: ${TAILSCALE_BACKUP_DIR}"
-      log::warn "Restore a previous operator identity before continuing if you need to avoid duplicate Tailscale devices."
-    fi
-    k8s::ensure_namespace "${TAILSCALE_NAMESPACE}"
-  fi
+  k8s::ensure_namespace "${TAILSCALE_NAMESPACE}"
 }
 
 tailscale::ensure_oauth_secret() {
@@ -50,43 +42,34 @@ tailscale::ensure_oauth_secret() {
     --from-literal=client_secret="${TAILSCALE_CLIENT_SECRET}"
 }
 
-tailscale::backup_operator_identity() {
-  local output_file="$1"
-  if k8s::secret_exists "${TAILSCALE_NAMESPACE}" "${TAILSCALE_OPERATOR_SECRET}"; then
-    kubectl get secret "${TAILSCALE_OPERATOR_SECRET}" -n "${TAILSCALE_NAMESPACE}" -o json >"${output_file}"
-    log::success "Backed up existing Tailscale operator identity."
-  else
-    log::warn "No existing ${TAILSCALE_NAMESPACE}/${TAILSCALE_OPERATOR_SECRET} identity Secret found."
-    if [[ -d "${TAILSCALE_BACKUP_DIR}" ]]; then
-      log::warn "Local backup root detected: ${TAILSCALE_BACKUP_DIR}"
-    fi
-  fi
+tailscale::validate_identity_file() {
+  local backup_file="$1"
+  [[ -s "${backup_file}" ]] || common::die "Required Tailscale operator identity backup is missing or empty: ${backup_file}"
+  python3 - "${backup_file}" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1]))
+keys = [k for k in (d.get('data') or {}) if k.startswith(('_machinekey', '_current-profile', 'profile-'))]
+if not keys:
+    raise SystemExit('operator identity backup lacks required identity keys')
+PY
 }
 
 tailscale::restore_operator_identity() {
   local backup_file="$1"
-  [[ -s "${backup_file}" ]] || return 0
-
-  local identity_keys
-  identity_keys="$(python3 -c "
-import json
-with open('${backup_file}') as f:
-    d = json.load(f)
-keys = [k for k in d.get('data',{}) if k.startswith('_machinekey') or k.startswith('_current-profile') or k.startswith('profile-')]
-print(' '.join(keys))" 2>/dev/null || true)"
-
-  [[ -n "${identity_keys}" ]] || return 0
-
-  log::info "Restoring Tailscale operator device identity to prevent duplicate devices."
-  kubectl get secret "${TAILSCALE_OPERATOR_SECRET}" -n "${TAILSCALE_NAMESPACE}" -o json 2>/dev/null | python3 -c "
+  tailscale::validate_identity_file "${backup_file}"
+  ! k8s::deployment_exists "${TAILSCALE_NAMESPACE}" "${TAILSCALE_OPERATOR_DEPLOYMENT}" || common::die "Refusing to restore identity after the Tailscale operator has started."
+  python3 - "${backup_file}" <<'PY' | kubectl apply -f -
 import json, sys
-backup = json.load(open('${backup_file}'))
-live = json.load(sys.stdin)
-for k, v in backup.get('data', {}).items():
-    if k.startswith('_machinekey') or k.startswith('_current-profile') or k.startswith('profile-'):
-        live.setdefault('data', {})[k] = v
-json.dump(live, sys.stdout)" | kubectl replace -f - 2>/dev/null || true
-  log::success "Tailscale operator identity preserved."
+d = json.load(open(sys.argv[1]))
+m = d.setdefault('metadata', {})
+for key in ('creationTimestamp','resourceVersion','uid','managedFields','selfLink','ownerReferences'):
+    m.pop(key, None)
+m['namespace'] = 'tailscale'
+d.pop('status', None)
+json.dump(d, sys.stdout)
+PY
+  k8s::secret_exists "${TAILSCALE_NAMESPACE}" "${TAILSCALE_OPERATOR_SECRET}" || common::die "Tailscale operator identity restore did not create the expected Secret."
+  log::success "Tailscale operator identity restored before startup."
 }
 
 tailscale::install_operator() {
@@ -125,35 +108,31 @@ tailscale::wait_proxy_pods() {
     sleep "${delay}"
   done
 
-  log::warn "No Tailscale proxy pods found after waiting."
-  return 0
+  log::error "No Tailscale proxy pods found after waiting."
+  return 1
 }
 
 tailscale::configure_serve() {
   "${COMMON_REPO_ROOT}/scripts/tailscale/configure-serve.sh"
 }
 
-tailscale::deploy_serve_watcher() {
-  kubectl apply -f "${TAILSCALE_SERVE_WATCHER_MANIFEST}"
-}
 
 tailscale::install_full() {
+  local identity_backup="${1:-}"
   tailscale::ensure_namespace
-  tailscale::ensure_oauth_secret
 
-  local identity_backup
-  common::mktemp_var identity_backup
-  tailscale::backup_operator_identity "${identity_backup}"
+  if [[ -n "${identity_backup}" ]]; then
+    tailscale::restore_operator_identity "${identity_backup}"
+  elif [[ -d "${TAILSCALE_BACKUP_DIR}" ]] && ! k8s::secret_exists "${TAILSCALE_NAMESPACE}" "${TAILSCALE_OPERATOR_SECRET}"; then
+    common::die "Tailscale backups exist under ${TAILSCALE_BACKUP_DIR}, but no operator identity is restored. Use make recover BACKUP_DIR=<path>."
+  fi
+
+  tailscale::ensure_oauth_secret
   tailscale::install_operator
-  tailscale::restore_operator_identity "${identity_backup}"
 
   log::info "Waiting for Tailscale proxy pods to be ready."
   tailscale::wait_proxy_pods 30 5
 
   log::info "Configuring Tailscale Serve on proxy pods."
   tailscale::configure_serve
-
-  log::info "Deploying Tailscale Serve watcher."
-  tailscale::deploy_serve_watcher
-  log::success "Tailscale Serve watcher deployed."
 }

@@ -21,21 +21,19 @@ OPENBAO_BACKUP_DIR="$(common::abs_path "${OPENBAO_BACKUP_DIR}")"
 OPENBAO_INIT_JSON="$(common::abs_path "${OPENBAO_INIT_JSON}")"
 
 openbao::exec() {
-  local token_export=""
-  if [[ -n "${ROOT_TOKEN:-}" ]]; then
-    token_export="export BAO_TOKEN='${ROOT_TOKEN}';"
-  elif [[ -n "${OPENBAO_TOKEN:-}" ]]; then
-    token_export="export BAO_TOKEN='${OPENBAO_TOKEN}';"
-  fi
+  local token="${ROOT_TOKEN:-${OPENBAO_TOKEN:-}}"
+  kubectl exec -n "${OPENBAO_NS}" "${OPENBAO_POD}" -- \
+    env BAO_ADDR="${OPENBAO_ADDR}" BAO_TOKEN="${token}" bao "$@"
+}
 
-  kubectl exec -n "${OPENBAO_NS}" "${OPENBAO_POD}" -- sh -c "
-    export BAO_ADDR='${OPENBAO_ADDR}'
-    ${token_export}
-    $*"
+openbao::exec_stdin() {
+  local token="${ROOT_TOKEN:-${OPENBAO_TOKEN:-}}"
+  kubectl exec -i -n "${OPENBAO_NS}" "${OPENBAO_POD}" -- \
+    env BAO_ADDR="${OPENBAO_ADDR}" BAO_TOKEN="${token}" bao "$@"
 }
 
 openbao::exec_quiet() {
-  openbao::exec "$@" 2>/dev/null || true
+  openbao::exec "$@" 2>/dev/null
 }
 
 openbao::load_root_token() {
@@ -76,7 +74,7 @@ openbao::wait_ready() {
 }
 
 openbao::status_json() {
-  openbao::exec_quiet "bao status -format=json"
+  openbao::exec_quiet status -format=json
 }
 
 openbao::is_initialized() {
@@ -93,25 +91,25 @@ openbao::is_sealed() {
 
 openbao::login_root() {
   ROOT_TOKEN="$(openbao::load_root_token)"
-  openbao::exec "bao login '${ROOT_TOKEN}'" >/dev/null
+  openbao::exec login "${ROOT_TOKEN}" >/dev/null
 }
 
 openbao::verify_token() {
   ROOT_TOKEN="${ROOT_TOKEN:-$(openbao::load_root_token)}"
-  openbao::exec "bao token lookup >/dev/null"
+  openbao::exec token lookup >/dev/null
 }
 
 openbao::auth_enabled() {
   local auth_path="$1"
-  openbao::exec_quiet "bao auth list -format=json" | python3 -c "import json,sys; print('${auth_path}/' in json.load(sys.stdin))" 2>/dev/null | grep -q True
+  openbao::exec_quiet auth list -format=json | python3 -c "import json,sys; print('${auth_path}/' in json.load(sys.stdin))" 2>/dev/null | grep -q True
 }
 
 openbao::secrets_engine_enabled() {
   local engine_path="$1"
-  openbao::exec_quiet "bao secrets list -format=json" | python3 -c "import json,sys; print('${engine_path}/' in json.load(sys.stdin))" 2>/dev/null | grep -q True
+  openbao::exec_quiet secrets list -format=json | python3 -c "import json,sys; print('${engine_path}/' in json.load(sys.stdin))" 2>/dev/null | grep -q True
 }
 
 openbao::policy_exists() {
   local policy="$1"
-  openbao::exec_quiet "bao policy read '${policy}' >/dev/null 2>&1"
+  openbao::exec_quiet policy read "${policy}" >/dev/null
 }

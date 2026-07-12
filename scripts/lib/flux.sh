@@ -11,16 +11,9 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"
 # shellcheck source=scripts/lib/kubernetes.sh
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/kubernetes.sh"
 
-: "${FLUX_GITHUB_REPOSITORY:=homelab-devsecops}"
 : "${FLUX_GITHUB_BRANCH:=main}"
 : "${FLUX_CLUSTER_PATH:=./clusters/kind}"
 
-flux::apply_fallback() {
-  local reason="$1"
-  log::warn "Falling back to direct kubectl apply (${reason})."
-  k8s::apply_kustomize "${COMMON_REPO_ROOT}/infrastructure"
-  k8s::apply_kustomize "${COMMON_REPO_ROOT}/apps"
-}
 
 flux::bootstrap_or_apply() {
   local mode_var_name="$1"
@@ -30,24 +23,17 @@ flux::bootstrap_or_apply() {
   printf -v "${semver_var_name}" '%s' "disabled"
 
   if ! command -v flux >/dev/null 2>&1; then
-    log::warn "Flux CLI not found. Install from https://fluxcd.io/flux/installation/"
-    printf -v "${mode_var_name}" '%s' "direct kubectl apply fallback (Flux CLI unavailable)"
-    flux::apply_fallback "Flux CLI unavailable"
-    return 0
+    common::die "Flux CLI is required. Install it from https://fluxcd.io/flux/installation/; manifests will not be applied directly."
   fi
 
   log::info "Flux CLI found. Running pre-flight checks."
-  if ! flux check --pre >/dev/null 2>&1; then
-    printf -v "${mode_var_name}" '%s' "direct kubectl apply fallback (Flux preflight failed)"
-    flux::apply_fallback "Flux preflight failed"
-    return 0
+  if ! flux check --pre; then
+    common::die "Flux preflight failed. Resolve the reported prerequisites; manifests will not be applied directly."
   fi
 
+  [[ -n "${FLUX_GITHUB_REPOSITORY:-}" ]] || common::die "FLUX_GITHUB_REPOSITORY is required for Flux bootstrap."
   if [[ -z "${GITHUB_TOKEN:-}" || -z "${GITHUB_USER:-}" ]]; then
-    log::warn "GITHUB_TOKEN or GITHUB_USER not set. Set them in config.env or environment to enable GitOps."
-    printf -v "${mode_var_name}" '%s' "direct kubectl apply fallback (missing GitHub credentials)"
-    flux::apply_fallback "missing GitHub credentials"
-    return 0
+    common::die "GITHUB_TOKEN and GITHUB_USER must be provided via the environment for Flux bootstrap; manifests will not be applied directly."
   fi
 
   log::info "Bootstrapping Flux from GitHub repository ${GITHUB_USER}/${FLUX_GITHUB_REPOSITORY}."

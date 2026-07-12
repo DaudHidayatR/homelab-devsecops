@@ -93,7 +93,6 @@ All component image versions are defined directly in their respective manifests.
 
 | Component | Image Source | Controlled In |
 |-----------|-------------|---------------|
-| OpenBao | `config.env: OPENBAO_IMAGE` / `OPENBAO_CHART_VERSION` | `infrastructure/openbao/values.yaml` (Flux HelmRelease values) |
 | Headlamp | `config.env: HEADLAMP_IMAGE` / `HEADLAMP_VERSION` | `apps/headlamp/headlamp.yaml` (Deployment image) |
 | RabbitMQ | `config.env: RABBITMQ_IMAGE` | `apps/rabbitmq/core/deployment.yaml` (Deployment image) |
 | Sample App | `config.env: SAMPLE_APP_IMAGE` | `apps/demo/sample-app/deployment.yaml` (Deployment image) |
@@ -222,11 +221,11 @@ This setup includes Headlamp to manage your cluster visually.
 
 1. Port-forward the Headlamp service:
    ```bash
-   kubectl port-forward -n kube-system service/headlamp 8080:80
+   kubectl port-forward -n headlamp service/headlamp 8080:80
    ```
 2. In a new terminal, generate a login token:
    ```bash
-   kubectl create token headlamp-admin -n kube-system
+   kubectl create token headlamp-admin -n headlamp
    ```
 3. Open [http://localhost:8080](http://localhost:8080) in your browser and paste the token to log in.
 
@@ -263,7 +262,7 @@ OpenBao initialization and unseal are intentionally manual. This keeps root toke
 | Deploy platform | `make up` | Create kind cluster and deploy OpenBao/ESO controllers | OpenBao is deployed but not initialized/unsealed |
 | Initialize/unseal | `bash scripts/openbao/bootstrap.sh` | Initialize if needed, unseal, enable KV v2/SSH/Kubernetes/userpass/AppRole, apply baseline policies | Stores root/unseal material under `.runtime-backups/openbao/` |
 | Reconcile policies | `make openbao-policies` | Re-apply registered policies under `policies/openbao/` and explicit Kubernetes auth/entity mappings | Safe after policy changes |
-| Create human users | `make openbao-create-user USER=alice PASSWORD='...' POLICY=user-default SSH=true` or `POLICY=user-default,system-admin,user-ssh` | Create/update a userpass user with one or more policies and optional SSH signing role | No default human user is created unless explicitly requested |
+| Create human users | `OPENBAO_USER=alice OPENBAO_PASSWORD='...' OPENBAO_POLICY=user-default OPENBAO_SSH=true make openbao-create-user` or `OPENBAO_POLICY=user-default,system-admin,user-ssh` | Create/update a userpass user with one or more policies and optional SSH signing role | No default human user is created unless explicitly requested |
 | Create machine access | `make openbao-create-approle ROLE=ci-robot POLICY=ci-deployer` | Create AppRole with response-wrapped single-use SecretID | No default AppRole is created unless explicitly requested |
 | Seed app secret | `bash scripts/openbao/store-rabbitmq.sh` | Store RabbitMQ credentials in OpenBao KV v2 | Source path is `secret/data/messaging/rabbitmq` |
 | Activate ESO sync | `kubectl apply -k infrastructure/external-secrets/stores` | Create ClusterSecretStore/ExternalSecret resources | Run only after OpenBao is initialized, unsealed, and seeded |
@@ -295,8 +294,8 @@ Fresh cluster sequence:
    ```bash
    make openbao-status
    make openbao-policies
-   make openbao-create-user USER=alice PASSWORD='change-me' POLICY=user-default SSH=true
-   make openbao-create-user USER=sagash PASSWORD='change-me' POLICY=user-default,system-admin,user-ssh SSH=true
+   OPENBAO_USER=alice OPENBAO_PASSWORD='change-me' OPENBAO_POLICY=user-default OPENBAO_SSH=true make openbao-create-user
+   OPENBAO_USER=sagash OPENBAO_PASSWORD='change-me' OPENBAO_POLICY=user-default,system-admin,user-ssh OPENBAO_SSH=true make openbao-create-user
    make openbao-create-approle ROLE=ci-robot POLICY=ci-deployer
    ```
 
@@ -378,7 +377,7 @@ Once the operator is running, access admin UIs directly from any device on your 
 
    | Service | Tailnet URL |
    |---------|-------------|
-   | Headlamp | `https://kube-system-headlamp.<tailnet>.ts.net` |
+   | Headlamp | `https://headlamp-headlamp.<tailnet>.ts.net` |
    | RabbitMQ | `https://messaging-rabbitmq.<tailnet>.ts.net` |
    | OpenBao  | `https://openbao-openbao.<tailnet>.ts.net/ui/` |
 
@@ -394,13 +393,10 @@ make redeploy
 
 Do not use `make down && make up` for normal redeploys. `make down` deletes the kind cluster and can remove Kubernetes Tailscale identity state.
 
-If a full cluster rebuild is required, preserve the Tailscale Kubernetes identity:
+If a full cluster rebuild is required, use the ordered recovery target. It validates and restores Tailscale identity before Flux starts the operator:
 
 ```bash
-make down
-./scripts/tailscale/restore-state.sh latest
-make up
-./scripts/tailscale/configure-serve.sh
+BACKUP_DIR=.runtime-backups/tailscale/<timestamp> make recover
 ./scripts/tailscale/check-access.sh
 ```
 
@@ -419,7 +415,7 @@ Tailnet Lock is enabled in this environment. Any newly registered Kubernetes pro
 ./scripts/tailscale/sign-proxies.sh
 ```
 
-For a VPS reboot, the cluster should recover as long as the container runtime, kind node, and host Tailscale daemon restart normally. The in-cluster Tailscale Serve watcher re-applies Serve config after proxy pod restarts. Run this check after reboot:
+For a VPS reboot, the cluster should recover as long as the container runtime, kind node, and host Tailscale daemon restart normally. Re-run Serve configuration and access checks after proxy restarts:
 
 ```bash
 ./scripts/tailscale/check-access.sh

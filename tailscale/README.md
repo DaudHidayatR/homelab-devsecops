@@ -29,14 +29,12 @@ TAILSCALE_CLIENT_SECRET="..."
 Automated steps:
 
 1. Create the `tailscale` namespace if needed.
-2. Create the `operator-oauth` Secret from the OAuth client credentials.
-3. Preserve any existing `tailscale/operator` Secret identity before reinstall attempts.
+2. Restore and validate any saved `tailscale/operator` identity before operator startup.
+3. Create the optional `operator-oauth` Secret from configured OAuth credentials.
 4. Install the Tailscale Kubernetes Operator when missing.
 5. Annotate the main OpenBao Service for tailnet exposure.
 6. Wait for operator-managed proxy pods.
-7. Run `scripts/tailscale/configure-serve.sh` to configure HTTPS Serve behavior.
-8. Deploy `tailscale/serve-watcher.yaml` so Serve config is re-applied after proxy restarts.
-9. Print final setup/access guidance.
+7. Run `scripts/tailscale/configure-serve.sh`, the single scheme-aware backend selector.
 
 Use this primary path for normal first-time setup.
 
@@ -64,17 +62,14 @@ That Secret contains machine/profile identity material. If it is lost during a c
 
 ### Full cluster rebuild sequence
 
-Prefer restoring identity before the operator starts in the rebuilt cluster:
+Use the supported recovery target. It validates the identity backup, backs up and deletes a live cluster when present, creates a bare Kind cluster, restores identity before operator startup, then bootstraps Flux and workloads:
 
 ```bash
-make down
-./scripts/tailscale/restore-state.sh latest
-make up
-./scripts/tailscale/configure-serve.sh
+BACKUP_DIR=.runtime-backups/tailscale/<timestamp> make recover
 ./scripts/tailscale/check-access.sh
 ```
 
-If local backups exist, `scripts/cluster/setup.sh` also prints warnings when it detects that the `tailscale` namespace or `operator` Secret is missing.
+If a live cluster exists, recovery uses the exact new backup produced during destruction rather than the supplied older path. Missing or malformed operator identity aborts recovery.
 
 ### Stale or deleted Tailscale devices
 
@@ -157,4 +152,3 @@ Once proxy DNS and Serve are ready, admin UIs are available from devices allowed
 | `reset-proxies.sh` | Remove stale proxy identity state so proxies can register fresh |
 | `sign-proxies.sh` | Sign new proxy devices when Tailnet Lock is enabled |
 | `check-access.sh` | Validate DNS, HTTPS, and Serve access expectations |
-| `serve-watcher.yaml` | Keeps Tailscale Serve configuration persistent across proxy restarts |
