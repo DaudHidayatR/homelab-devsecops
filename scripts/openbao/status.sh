@@ -15,13 +15,6 @@ source "${PROJECT_ROOT}/scripts/lib/openbao.sh"
 
 BACKUP_DIR="${OPENBAO_BACKUP_DIR}"
 
-_bao_exec() {
-  openbao::exec "$@"
-}
-
-_bao_exec_quiet() {
-  openbao::exec_quiet "$@"
-}
 
 print_section() {
   echo ""
@@ -37,7 +30,7 @@ print_section "Pod"
 kubectl get pod "$OPENBAO_POD" -n "$OPENBAO_NS"
 
 print_section "Seal Status"
-STATUS_JSON="$(_bao_exec_quiet "bao status -format=json")"
+STATUS_JSON="$(openbao::exec_quiet status -format=json)"
 if [ -z "$STATUS_JSON" ]; then
   echo "Unable to read OpenBao status. Pod may not be ready."
   exit 0
@@ -73,22 +66,22 @@ if [ -z "${OPENBAO_TOKEN:-}" ]; then
 fi
 
 print_section "Auth Methods"
-_bao_exec "bao auth list" || true
+openbao::exec auth list || true
 
 print_section "Secrets Engines"
-_bao_exec "bao secrets list" || true
+openbao::exec secrets list || true
 
 print_section "Audit Devices"
-_bao_exec "bao audit list" || true
+openbao::exec audit list || true
 
 print_section "Policies"
-_bao_exec "bao policy list" || true
+openbao::exec policy list || true
 
 print_section "Kubernetes Roles"
-_bao_exec "bao list auth/kubernetes/role" || true
+openbao::exec list auth/kubernetes/role || true
 
 print_section "Entities"
-_bao_exec "bao list identity/entity/name" || true
+openbao::exec list identity/entity/name || true
 
 print_section "Current Token"
-_bao_exec "bao token lookup" || true
+openbao::exec token lookup || true

@@ -66,13 +66,6 @@ mkdir -p "$BACKUP_DIR/approles"
 
 ROOT_TOKEN="$(openbao::load_root_token)"
 
-_bao_exec() {
-  openbao::exec "$@"
-}
-
-_bao_exec_quiet() {
-  openbao::exec_quiet "$@"
-}
 
 if ! kubectl get pod "$OPENBAO_POD" -n "$OPENBAO_NS" >/dev/null 2>&1; then
   echo "ERROR: OpenBao pod '$OPENBAO_POD' not found in namespace '$OPENBAO_NS'." >&2
@@ -80,29 +73,29 @@ if ! kubectl get pod "$OPENBAO_POD" -n "$OPENBAO_NS" >/dev/null 2>&1; then
 fi
 
 kubectl wait --for=condition=Ready "pod/${OPENBAO_POD}" -n "$OPENBAO_NS" --timeout=300s >/dev/null
-_bao_exec "bao token lookup >/dev/null"
+openbao::exec token lookup
 
-if ! _bao_exec_quiet "bao auth list -format=json" | python3 -c "import json,sys; print('approle/' in json.load(sys.stdin))" 2>/dev/null | grep -q True; then
+if ! openbao::exec_quiet auth list -format=json | python3 -c "import json,sys; print('approle/' in json.load(sys.stdin))" 2>/dev/null | grep -q True; then
   echo "ERROR: approle auth is not enabled. Run bootstrap first." >&2
   exit 1
 fi
 
-if ! _bao_exec "bao policy read '$POLICY' >/dev/null 2>&1"; then
+if ! openbao::exec policy read "$POLICY"; then
   echo "ERROR: Policy '$POLICY' does not exist." >&2
   exit 1
 fi
 
 echo "=== Ensuring AppRole '$ROLE_NAME' ==="
-_bao_exec "bao write auth/approle/role/'$ROLE_NAME' \
-  token_policies='$POLICY' \
-  token_ttl='$TOKEN_TTL' \
-  token_max_ttl='$TOKEN_MAX_TTL' \
-  secret_id_ttl='$SECRET_ID_TTL' \
-  secret_id_num_uses='1'" >/dev/null
+openbao::exec write auth/approle/role/"${ROLE_NAME}" \
+  "token_policies=${POLICY}" \
+  "token_ttl=${TOKEN_TTL}" \
+  "token_max_ttl=${TOKEN_MAX_TTL}" \
+  "secret_id_ttl=${SECRET_ID_TTL}" \
+  secret_id_num_uses=1 >/dev/null
 
 echo "  Role configured with policy: $POLICY"
-ROLE_ID="$(_bao_exec "bao read -field=role_id auth/approle/role/'$ROLE_NAME'/role-id")"
-WRAP_JSON="$(_bao_exec "bao write -format=json -wrap-ttl='$WRAP_TTL' -f auth/approle/role/'$ROLE_NAME'/secret-id")"
+ROLE_ID="$(openbao::exec read -field=role_id auth/approle/role/"$ROLE_NAME"/role-id)"
+WRAP_JSON="$(openbao::exec write -format=json -wrap-ttl="$WRAP_TTL" -f auth/approle/role/"$ROLE_NAME"/secret-id)"
 WRAPPING_TOKEN="$(printf '%s\n' "$WRAP_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin)['wrap_info']['token'])")"
 WRAPPING_ACCESSOR="$(printf '%s\n' "$WRAP_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin)['wrap_info'].get('accessor',''))")"
 

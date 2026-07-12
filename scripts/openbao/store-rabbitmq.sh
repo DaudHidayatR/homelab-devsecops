@@ -30,13 +30,6 @@ SECRET_PATH="secret/messaging/rabbitmq"
 
 # ── Helpers ────────────────────────────────────────────────────────────
 
-_bao_exec() {
-  openbao::exec "$@"
-}
-
-_bao_exec_quiet() {
-  openbao::exec_quiet "$@"
-}
 
 # ── 1. Verify OpenBao is ready ────────────────────────────────────────
 
@@ -51,7 +44,7 @@ fi
 kubectl wait --for=condition=Ready "pod/${OPENBAO_POD}" -n "$OPENBAO_NS" --timeout=120s
 
 # Check if OpenBao is initialized and unsealed
-STATUS_JSON=$(_bao_exec_quiet "bao status -format=json")
+STATUS_JSON=$(openbao::exec_quiet status -format=json)
 INITIALIZED=$(echo "$STATUS_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin).get('initialized',False))" 2>/dev/null || echo "False")
 SEALED=$(echo "$STATUS_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin).get('sealed',True))" 2>/dev/null || echo "True")
 
@@ -67,7 +60,7 @@ fi
 
 # Login as root
 ROOT_TOKEN="$(openbao::load_root_token)"
-_bao_exec_quiet "bao login '$ROOT_TOKEN'" >/dev/null
+openbao::exec_quiet login "$ROOT_TOKEN" >/dev/null
 echo "  Authenticated to OpenBao."
 
 # ── 2. Determine credentials ──────────────────────────────────────────
@@ -100,7 +93,7 @@ fi
 
 # ── 3. Check if already stored in OpenBao ─────────────────────────────
 
-EXISTS_IN_OBAO=$(_bao_exec_quiet "bao kv get -format=json '$SECRET_PATH'" | python3 -c "
+EXISTS_IN_OBAO=$(openbao::exec_quiet kv get -format=json "$SECRET_PATH" | python3 -c "
 import json, sys
 d = json.load(sys.stdin)
 print('true' if d.get('data',{}).get('data',{}).get('RABBITMQ_DEFAULT_USER') else 'false')
@@ -122,14 +115,14 @@ fi
 echo ""
 echo "=== Storing credentials in OpenBao ==="
 
-_bao_exec "bao kv put '$SECRET_PATH' \
-  RABBITMQ_DEFAULT_USER='$USER' \
-  RABBITMQ_DEFAULT_PASS='$PASS'"
+openbao::exec kv put "${SECRET_PATH}" \
+  "RABBITMQ_DEFAULT_USER=${USER}" \
+  "RABBITMQ_DEFAULT_PASS=${PASS}"
 
 # Verify
 echo ""
 echo "=== Verifying stored secret ==="
-_bao_exec "bao kv get -field=RABBITMQ_DEFAULT_USER '$SECRET_PATH'"
+openbao::exec kv get -field=RABBITMQ_DEFAULT_USER "$SECRET_PATH"
 echo "  (password hidden)"
 
 echo ""

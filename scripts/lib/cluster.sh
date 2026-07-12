@@ -10,9 +10,18 @@ KIND_CLUSTER_SH_LOADED=1
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"
 
 : "${CLUSTER_NAME:=kind-devsecops}"
-: "${CLUSTER_CONTEXT:=kind-${CLUSTER_NAME}}"
+
+cluster::validate_name() {
+  [[ "${CLUSTER_NAME}" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?$ && ${#CLUSTER_NAME} -le 63 ]] ||
+    common::die "CLUSTER_NAME must be a non-empty Kind-compatible DNS label (lowercase alphanumeric or '-', maximum 63 characters): '${CLUSTER_NAME}'"
+}
+
+cluster::context() {
+  printf 'kind-%s\n' "${CLUSTER_NAME}"
+}
 
 cluster::exists() {
+  cluster::validate_name
   kind get clusters | awk -v name="${CLUSTER_NAME}" '$0 == name {found=1} END {exit !found}'
 }
 
@@ -40,14 +49,15 @@ cluster::render_config() {
 
 cluster::ensure_kind() {
   local source_config="$1"
+  cluster::validate_name
   local rendered_config
 
   if cluster::exists; then
     log::info "Kind cluster '${CLUSTER_NAME}' already exists; skipping creation."
-    kubectl config use-context "${CLUSTER_CONTEXT}" >/dev/null 2>&1 || true
+    kubectl config use-context "$(cluster::context)" >/dev/null 2>&1 || true
     return 0
   fi
 
   cluster::render_config rendered_config "${source_config}"
-  kind create cluster --config "${rendered_config}"
+  kind create cluster --name "${CLUSTER_NAME}" --config "${rendered_config}"
 }

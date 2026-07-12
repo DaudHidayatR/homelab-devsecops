@@ -8,14 +8,16 @@
 #   ./scripts/security/scan.sh validate     # Validate report files only
 #
 # Environment:
-#   SCAN_ROOT      — project directory to scan (default: current directory)
-#   TRIVY_IMAGE    — Trivy container image
-#   GRYPE_IMAGE    — Grype container image
-#   GITLEAKS_IMAGE — Gitleaks container image
-#   SEMGREP_IMAGE  — Semgrep container image
-#   SYFT_IMAGE     — Syft container image
-#   CHECKOV_IMAGE  — Checkov container image
-#   SEVERITY       — Severity threshold (default: HIGH,CRITICAL)
+#   SCAN_ROOT         — project directory to scan (default: this infra/kind directory)
+#   SCAN_OUTPUT       — directory for generated reports (default: this infra/kind directory)
+#   SCAN_RUNTIME_ARGS — extra Docker/Podman flags, for example: --dns 1.1.1.1
+#   TRIVY_IMAGE       — Trivy container image
+#   GRYPE_IMAGE       — Grype container image
+#   GITLEAKS_IMAGE    — Gitleaks container image
+#   SEMGREP_IMAGE     — Semgrep container image
+#   SYFT_IMAGE        — Syft container image
+#   CHECKOV_IMAGE     — Checkov container image
+#   SEVERITY          — Severity threshold (default: HIGH,CRITICAL)
 
 set -uo pipefail
 
@@ -23,9 +25,6 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 cd "$PROJECT_ROOT" || exit 1
-
-# Clean up stale output from previous runs (Checkov v3+ creates directories)
-rm -rf "$PROJECT_ROOT/checkov-json" "$PROJECT_ROOT/checkov-sarif"
 
 # Source config.env (required — single source of truth)
 if [ -f "$PROJECT_ROOT/config.env" ]; then
@@ -36,23 +35,20 @@ else
   exit 1
 fi
 
+SCAN_TARGET="${SCAN_ROOT:-$PROJECT_ROOT}"
+SCAN_TARGET="$(cd "$SCAN_TARGET" && pwd)"
+REPORT_DIR="${SCAN_OUTPUT:-$PROJECT_ROOT}"
+mkdir -p "$REPORT_DIR"
+REPORT_DIR="$(cd "$REPORT_DIR" && pwd)"
+
+# Clean up stale output from previous runs (Checkov v3+ creates directories)
+rm -rf "$REPORT_DIR/checkov-json" "$REPORT_DIR/checkov-sarif"
+
 # Verify required variables are set after sourcing
 : "${TRIVY_IMAGE:?}" "${GRYPE_IMAGE:?}" "${GITLEAKS_IMAGE:?}" "${SEMGREP_IMAGE:?}" "${SYFT_IMAGE:?}" "${CHECKOV_IMAGE:?}" "${SEVERITY:?}"
 
 SEMGREP_RULESETS="${SEMGREP_RULESETS:-p/default,p/owasp-top-ten,p/cwe-top-25,p/security-audit,p/secrets,p/supply-chain,p/docker,p/kubernetes}"
-SEMGREP_EXCLUDE_RULES="${SEMGREP_EXCLUDE_RULES:-yaml.kubernetes.security.run-as-non-root.run-as-non-root,yaml.kubernetes.security.allow-privilege-escalation-no-securitycontext.allow-privilege-escalation-no-securitycontext}"
-
-# Detect container runtime
-if command -v podman >/dev/null 2>&1; then
-  RUNTIME=podman
-  VOL_SUFFIX=":Z"
-elif command -v docker >/dev/null 2>&1; then
-  RUNTIME=docker
-  VOL_SUFFIX=""
-else
-  echo "ERROR: no container runtime (docker or podman) found." >&2
-  exit 1
-fi
+SCAN_STATUS=0
 
 # ─── LOGGING ───
 log_info()  { printf '[INFO]  %s\n' "$*"; }
@@ -60,18 +56,178 @@ log_warn()  { printf '[WARN]  %s\n' "$*" >&2; }
 log_error() { printf '[ERROR] %s\n' "$*" >&2; }
 log_ok()    { printf '[OK]    %s\n' "$*"; }
 
+# Detect container runtime
+if command -v podman >/dev/null 2>&1; then
+  RUNTIME=podman
+  VOL_SUFFIX=":Z"
+  if [ "${EUID:-$(id -u)}" -eq 0 ] && [ -n "${SUDO_USER:-}" ]; then
+    log_warn "Running Podman through sudo uses rootful networking; if registry/DNS lookups fail, retry without sudo or pass working DNS via SCAN_RUNTIME_ARGS."
+  fi
+elif command -v docker >/dev/null 2>&1; then
+  RUNTIME=docker
+  VOL_SUFFIX=""
+else
+  log_error "no container runtime (docker or podman) found."
+  exit 1
+fi
+
+runtime_command() {
+  RUNTIME_CMD=("$RUNTIME" run --rm)
+  if [ -n "${SCAN_RUNTIME_ARGS:-}" ]; then
+    # Intentional word splitting lets users pass runtime flags like: --dns 1.1.1.1
+    # shellcheck disable=SC2206
+    local runtime_args=( $SCAN_RUNTIME_ARGS )
+    RUNTIME_CMD+=("${runtime_args[@]}")
+  fi
+  RUNTIME_CMD+=(
+    -e "TRIVY_DB_REPOSITORY=${TRIVY_DB_REPOSITORY:-}"
+    -v "${SCAN_TARGET}:/src${VOL_SUFFIX}"
+    -v "${REPORT_DIR}:/out${VOL_SUFFIX}"
+    -w /src
+  )
+}
+
+json_escape() {
+  local value="$1"
+  value=${value//\\/\\\\}
+  value=${value//\"/\\\"}
+  value=${value//$'\n'/\\n}
+  value=${value//$'\r'/\\r}
+  value=${value//$'\t'/\\t}
+  printf '%s' "$value"
+}
+
+command_json_array() {
+  local first=1
+  local arg
+  printf '['
+  for arg in "$@"; do
+    [ "$first" -eq 1 ] || printf ','
+    printf '"%s"' "$(json_escape "$arg")"
+    first=0
+  done
+  printf ']'
+}
+
+write_error_json() {
+  local report="$1" scanner_name="$2" exit_code="$3"
+  shift 3
+  cat > "$REPORT_DIR/$report" <<EOF
+{
+  "schemaVersion": 1,
+  "scanner": "$(json_escape "$scanner_name")",
+  "status": "error",
+  "exitCode": $exit_code,
+  "target": "$(json_escape "$SCAN_TARGET")",
+  "message": "Scanner failed before producing this report. This placeholder records the failure so downstream report collection is deterministic.",
+  "command": $(command_json_array "$@")
+}
+EOF
+}
+
+write_error_sarif() {
+  local report="$1" scanner_name="$2" exit_code="$3"
+  shift 3
+  cat > "$REPORT_DIR/$report" <<EOF
+{
+  "version": "2.1.0",
+  "\$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "$(json_escape "$scanner_name")",
+          "rules": [
+            {
+              "id": "scanner-execution-failed",
+              "name": "Scanner execution failed",
+              "shortDescription": { "text": "Scanner failed before producing results" },
+              "help": { "text": "Check container image availability, network/DNS access, scanner databases, and runtime permissions." }
+            }
+          ]
+        }
+      },
+      "invocations": [
+        {
+          "executionSuccessful": false,
+          "exitCode": $exit_code,
+          "commandLine": "$(json_escape "$*")"
+        }
+      ],
+      "results": [
+        {
+          "ruleId": "scanner-execution-failed",
+          "level": "error",
+          "message": { "text": "$(json_escape "$scanner_name") failed before producing this report." }
+        }
+      ]
+    }
+  ]
+}
+EOF
+}
+
+write_error_text() {
+  local report="$1" scanner_name="$2" exit_code="$3"
+  shift 3
+  cat > "$REPORT_DIR/$report" <<EOF
+$scanner_name failed before producing this report.
+
+Status: error
+Exit code: $exit_code
+Target: $SCAN_TARGET
+Command: $*
+
+Check container image availability, network/DNS access, scanner databases, and runtime permissions.
+EOF
+}
+
+write_error_report() {
+  local report="$1" scanner_name="$2" exit_code="$3"
+  shift 3
+  [ -s "$REPORT_DIR/$report" ] && return 0
+  case "$report" in
+    *.sarif) write_error_sarif "$report" "$scanner_name" "$exit_code" "$@" ;;
+    *.txt) write_error_text "$report" "$scanner_name" "$exit_code" "$@" ;;
+    *) write_error_json "$report" "$scanner_name" "$exit_code" "$@" ;;
+  esac
+  log_warn "Wrote fallback error report: $report"
+}
+
+write_skipped_report() {
+  local report="$1" scanner_name="$2" exit_code="$3" reason="$4"
+  shift 4
+  write_error_report "$report" "$scanner_name" "$exit_code" "$@" "skipped:" "$reason"
+}
+
 # ─── SCANNER RUNNER ───
 run_scanner() {
   local name="$1"
   shift
   log_info "Running $name ..."
-  if "$RUNTIME" run --rm \
-    -v "${PROJECT_ROOT}:/src${VOL_SUFFIX}" \
-    -w /src \
-    "$@"; then
+  runtime_command
+  local cmd=("${RUNTIME_CMD[@]}" "$@")
+  if "${cmd[@]}"; then
     log_ok "$name completed"
+    return 0
   else
+    local exit_code=$?
     log_warn "$name exited with non-zero code (findings or error) — report file will be validated below."
+    case "$name" in
+      "Trivy (JSON)") write_error_report trivy-report.json "$name" "$exit_code" "${cmd[@]}" ;;
+      "Trivy (SARIF)") write_error_report trivy-report.sarif "$name" "$exit_code" "${cmd[@]}" ;;
+      "Trivy (Table)") write_error_report trivy-report.txt "$name" "$exit_code" "${cmd[@]}" ;;
+      "Kustomize (Trivy config)") write_error_report trivy-rendered.sarif "$name" "$exit_code" "${cmd[@]}" ;;
+      "Grype") write_error_report grype-report.json "$name" "$exit_code" "${cmd[@]}" ;;
+      "GitLeaks") write_error_report gitleaks-report.json "$name" "$exit_code" "${cmd[@]}" ;;
+      "Semgrep (JSON)") write_error_report semgrep-report.json "$name" "$exit_code" "${cmd[@]}" ;;
+      "Semgrep (SARIF)") write_error_report semgrep-report.sarif "$name" "$exit_code" "${cmd[@]}" ;;
+      "Checkov Kubernetes (SARIF)") write_error_report checkov-report.sarif "$name" "$exit_code" "${cmd[@]}" ;;
+      "Checkov Kubernetes (JSON)") write_error_report checkov-report.json "$name" "$exit_code" "${cmd[@]}" ;;
+      "Syft (SPDX)") write_error_report sbom-spdx.json "$name" "$exit_code" "${cmd[@]}" ;;
+      "Syft (CycloneDX)") write_error_report sbom-cyclonedx.json "$name" "$exit_code" "${cmd[@]}" ;;
+    esac
+    return "$exit_code"
   fi
 }
 
@@ -80,59 +236,72 @@ scan_trivy() {
   run_scanner "Trivy (JSON)" "$TRIVY_IMAGE" \
     fs --scanners vuln,secret,misconfig,license \
     --severity "$SEVERITY" --format json --ignore-unfixed \
-    --output /src/trivy-report.json /src
+    --output /out/trivy-report.json /src
+  local trivy_status=$?
+
+  if [ "$trivy_status" -ne 0 ]; then
+    log_warn "Skipping remaining Trivy formats because Trivy initialization failed during JSON scan."
+    write_skipped_report trivy-report.sarif "Trivy (SARIF)" "$trivy_status" \
+      "Trivy JSON scan failed first; avoiding repeated DB/image download attempts." \
+      "$RUNTIME" run --rm "$TRIVY_IMAGE" fs --format sarif --output /out/trivy-report.sarif /src
+    write_skipped_report trivy-report.txt "Trivy (Table)" "$trivy_status" \
+      "Trivy JSON scan failed first; avoiding repeated DB/image download attempts." \
+      "$RUNTIME" run --rm "$TRIVY_IMAGE" fs --format table --output /out/trivy-report.txt /src
+    return "${trivy_status}"
+  fi
 
   run_scanner "Trivy (SARIF)" "$TRIVY_IMAGE" \
     fs --scanners vuln,secret,misconfig,license \
     --severity "$SEVERITY" --format sarif --ignore-unfixed \
-    --output /src/trivy-report.sarif /src
+    --output /out/trivy-report.sarif /src || trivy_status=1
 
   run_scanner "Trivy (Table)" "$TRIVY_IMAGE" \
     fs --scanners vuln,secret,misconfig,license \
     --severity "$SEVERITY" --format table --ignore-unfixed --dependency-tree \
-    --output /src/trivy-report.txt /src
+    --output /out/trivy-report.txt /src || trivy_status=1
+  return "${trivy_status}"
 }
 
 scan_kustomize() {
-  if [ ! -f "$PROJECT_ROOT/kustomization.yaml" ] && [ ! -f "$PROJECT_ROOT/kustomization.yml" ] && [ ! -f "$PROJECT_ROOT/Kustomization" ]; then
+  if [ ! -f "$SCAN_TARGET/kustomization.yaml" ] && [ ! -f "$SCAN_TARGET/kustomization.yml" ] && [ ! -f "$SCAN_TARGET/Kustomization" ]; then
     log_warn "No kustomization file found; skipping rendered manifest scan."
     return 0
   fi
 
   log_info "Rendering kustomize manifests ..."
-  local rendered="$PROJECT_ROOT/.rendered-manifests.yaml"
+  local rendered="$REPORT_DIR/.rendered-manifests.yaml"
   if command -v kustomize >/dev/null 2>&1; then
-    if ! kustomize build "$PROJECT_ROOT" > "$rendered" 2>/dev/null; then
-      log_warn "Kustomize build failed; skipping rendered manifest scan."
+    if ! kustomize build "$SCAN_TARGET" > "$rendered" 2>/dev/null; then
+      log_error "Kustomize build failed."
       rm -f "$rendered"
-      return 0
+      return 1
     fi
   elif command -v kubectl >/dev/null 2>&1; then
-    if ! kubectl kustomize "$PROJECT_ROOT" > "$rendered" 2>/dev/null; then
-      log_warn "kubectl kustomize failed; skipping rendered manifest scan."
+    if ! kubectl kustomize "$SCAN_TARGET" > "$rendered" 2>/dev/null; then
+      log_error "kubectl kustomize failed."
       rm -f "$rendered"
-      return 0
+      return 1
     fi
   else
-    log_warn "Neither kustomize nor kubectl available; skipping rendered manifest scan."
-    return 0
+    log_error "Neither kustomize nor kubectl is available for rendered manifest scanning."
+    return 1
   fi
 
   run_scanner "Kustomize (Trivy config)" "$TRIVY_IMAGE" \
     config --severity "$SEVERITY" --format sarif \
-    --output /src/trivy-rendered.sarif /src/.rendered-manifests.yaml
+    --output /out/trivy-rendered.sarif /out/.rendered-manifests.yaml
 
   rm -f "$rendered"
 }
 
 scan_grype() {
   run_scanner "Grype" "$GRYPE_IMAGE" \
-    dir:/src -o json=/src/grype-report.json
+    dir:/src -o json=/out/grype-report.json
 }
 
 scan_gitleaks() {
   run_scanner "GitLeaks" "$GITLEAKS_IMAGE" \
-    detect --source /src --report-format json --report-path /src/gitleaks-report.json -v
+    detect --source /src --report-format json --report-path /out/gitleaks-report.json -v
 }
 
 # ─── SEMGREP ARG BUILDER ───
@@ -141,20 +310,17 @@ build_semgrep_args() {
 
   IFS=',' read -ra rules <<< "$SEMGREP_RULESETS"
   for r in "${rules[@]}"; do
-    SEMGREP_ARGS+=(--config "$r")
+    r="${r//[[:space:]]/}"
+    [ -n "$r" ] && SEMGREP_ARGS+=(--config "$r")
   done
 
-  if [ -n "$(find "$PROJECT_ROOT" -maxdepth 2 -name "*.py" -print -quit)" ]; then
+  if [ -n "$(find "$SCAN_TARGET" -maxdepth 2 -name "*.py" -print -quit)" ]; then
     SEMGREP_ARGS+=(--config "p/python")
   fi
-  if [ -n "$(find "$PROJECT_ROOT" -maxdepth 2 \( -name "*.js" -o -name "*.ts" \) -print -quit)" ]; then
+  if [ -n "$(find "$SCAN_TARGET" -maxdepth 2 \( -name "*.js" -o -name "*.ts" \) -print -quit)" ]; then
     SEMGREP_ARGS+=(--config "p/javascript" --config "p/typescript")
   fi
 
-  IFS=',' read -ra exclusions <<< "$SEMGREP_EXCLUDE_RULES"
-  for e in "${exclusions[@]}"; do
-    SEMGREP_ARGS+=(--exclude-rule="$e")
-  done
 
   SEMGREP_ARGS+=(--max-memory=4096 --metrics=off)
 }
@@ -163,60 +329,79 @@ scan_semgrep() {
   build_semgrep_args
 
   run_scanner "Semgrep (JSON)" "$SEMGREP_IMAGE" \
-    "${SEMGREP_ARGS[@]}" --json --output /src/semgrep-report.json /src
+    "${SEMGREP_ARGS[@]}" --json --output /out/semgrep-report.json /src
+  local semgrep_status=$?
+
+  if [ "$semgrep_status" -ne 0 ]; then
+    log_warn "Skipping remaining Semgrep formats because Semgrep failed during JSON scan."
+    write_skipped_report semgrep-report.sarif "Semgrep (SARIF)" "$semgrep_status" \
+      "Semgrep JSON scan failed first; avoiding repeated image/ruleset download attempts." \
+      "$RUNTIME" run --rm "$SEMGREP_IMAGE" semgrep --sarif --output /out/semgrep-report.sarif /src
+    write_skipped_report semgrep-report.txt "Semgrep (Text)" "$semgrep_status" \
+      "Semgrep JSON scan failed first; avoiding repeated image/ruleset download attempts." \
+      "$RUNTIME" run --rm "$SEMGREP_IMAGE" semgrep --output /out/semgrep-report.txt /src
+    return "${semgrep_status}"
+  fi
 
   run_scanner "Semgrep (SARIF)" "$SEMGREP_IMAGE" \
-    "${SEMGREP_ARGS[@]}" --sarif --output /src/semgrep-report.sarif /src
+    "${SEMGREP_ARGS[@]}" --sarif --output /out/semgrep-report.sarif /src || semgrep_status=1
 
-  # Semgrep's text findings go to stdout, the TUI progress table goes to stderr.
-  # When there are 0 findings, stdout is empty. Capture both streams so the text
-  # report is always non-empty (contains at minimum the scan summary from stderr).
   log_info "Running Semgrep (Text) ..."
-  if "$RUNTIME" run --rm \
-    -v "${PROJECT_ROOT}:/src${VOL_SUFFIX}" \
-    -w /src \
-    "$SEMGREP_IMAGE" \
-    "${SEMGREP_ARGS[@]}" --text /src \
-    > "$PROJECT_ROOT/semgrep-report.txt" 2>&1; then
+  runtime_command
+  local cmd=("${RUNTIME_CMD[@]}" "$SEMGREP_IMAGE" "${SEMGREP_ARGS[@]}" --text /src)
+  if "${cmd[@]}" > "$REPORT_DIR/semgrep-report.txt" 2>&1; then
     log_ok "Semgrep (Text) completed"
   else
+    local exit_code=$?
     log_warn "Semgrep (Text) exited with non-zero code (findings or error) — report file will be validated below."
+    write_error_report semgrep-report.txt "Semgrep (Text)" "$exit_code" "${cmd[@]}"
+    semgrep_status=1
   fi
+  return "${semgrep_status}"
 }
 
 scan_syft() {
   run_scanner "Syft (SPDX)" "$SYFT_IMAGE" \
-    /src -o spdx-json=/src/sbom-spdx.json
+    /src -o spdx-json=/out/sbom-spdx.json
+  local syft_status=$?
+
+  if [ "$syft_status" -ne 0 ]; then
+    log_warn "Skipping remaining Syft formats because Syft failed during SPDX scan."
+    write_skipped_report sbom-cyclonedx.json "Syft (CycloneDX)" "$syft_status" \
+      "Syft SPDX scan failed first; avoiding repeated image/cataloger startup attempts." \
+      "$RUNTIME" run --rm "$SYFT_IMAGE" /src -o cyclonedx-json=/out/sbom-cyclonedx.json
+    return "${syft_status}"
+  fi
 
   run_scanner "Syft (CycloneDX)" "$SYFT_IMAGE" \
-    /src -o cyclonedx-json=/src/sbom-cyclonedx.json
+    /src -o cyclonedx-json=/out/sbom-cyclonedx.json || syft_status=1
+  return "${syft_status}"
 }
 
 scan_checkov() {
-  # Checkov v3+ treats --output-file-path as a directory, writing files inside it.
-  # We use subdirectories as output targets to avoid the directory-vs-file conflict,
-  # then flatten and clean up.
+  local checkov_status=0
   run_scanner "Checkov Kubernetes (SARIF)" "$CHECKOV_IMAGE" \
     -d /src --framework kubernetes --quiet \
-    -o sarif --output-file-path /src/checkov-sarif
-  if [ -f "$PROJECT_ROOT/checkov-sarif/results_sarif.sarif" ]; then
-    mv "$PROJECT_ROOT/checkov-sarif/results_sarif.sarif" "$PROJECT_ROOT/checkov-report.sarif"
-    rm -rf "$PROJECT_ROOT/checkov-sarif"
+    -o sarif --output-file-path /out/checkov-sarif || checkov_status=1
+  if [ -f "$REPORT_DIR/checkov-sarif/results_sarif.sarif" ]; then
+    mv "$REPORT_DIR/checkov-sarif/results_sarif.sarif" "$REPORT_DIR/checkov-report.sarif"
+    rm -rf "$REPORT_DIR/checkov-sarif"
   fi
 
   run_scanner "Checkov Kubernetes (JSON)" "$CHECKOV_IMAGE" \
     -d /src --framework kubernetes --quiet \
-    -o json --output-file-path /src/checkov-json
-  if [ -f "$PROJECT_ROOT/checkov-json/results_json.json" ]; then
-    mv "$PROJECT_ROOT/checkov-json/results_json.json" "$PROJECT_ROOT/checkov-report.json"
-    rm -rf "$PROJECT_ROOT/checkov-json"
+    -o json --output-file-path /out/checkov-json || checkov_status=1
+  if [ -f "$REPORT_DIR/checkov-json/results_json.json" ]; then
+    mv "$REPORT_DIR/checkov-json/results_json.json" "$REPORT_DIR/checkov-report.json"
+    rm -rf "$REPORT_DIR/checkov-json"
   fi
+  return "${checkov_status}"
 }
 
 # ─── VALIDATION ───
 validate_reports() {
   log_info "═════════════════════════════════════════════════════════════"
-  log_info "Validating report files ..."
+  log_info "Validating report files in $REPORT_DIR ..."
   log_info "═════════════════════════════════════════════════════════════"
 
   local required=(
@@ -233,28 +418,43 @@ validate_reports() {
     sbom-spdx.json
     sbom-cyclonedx.json
   )
+  if [ -f "$SCAN_TARGET/kustomization.yaml" ] || [ -f "$SCAN_TARGET/kustomization.yml" ] || [ -f "$SCAN_TARGET/Kustomization" ]; then
+    required+=(trivy-rendered.sarif)
+  fi
 
-  local missing=0
+  local failures=0
+  local f
   for f in "${required[@]}"; do
-    if [ -f "$PROJECT_ROOT/$f" ] && [ -s "$PROJECT_ROOT/$f" ]; then
-      log_ok "$f ($(du -h "$PROJECT_ROOT/$f" | cut -f1))"
+    if [ -f "$REPORT_DIR/$f" ] && [ -s "$REPORT_DIR/$f" ]; then
+      log_ok "$f"
     else
       log_error "missing or empty: $f"
-      missing=$((missing + 1))
+      failures=$((failures + 1))
     fi
   done
 
-  if [ -f "$PROJECT_ROOT/kustomization.yaml" ] || [ -f "$PROJECT_ROOT/kustomization.yml" ] || [ -f "$PROJECT_ROOT/Kustomization" ]; then
-    if [ -f "$PROJECT_ROOT/trivy-rendered.sarif" ] && [ -s "$PROJECT_ROOT/trivy-rendered.sarif" ]; then
-      log_ok "trivy-rendered.sarif"
-    else
-      log_error "missing or empty: trivy-rendered.sarif"
-      missing=$((missing + 1))
+  for f in "${required[@]}"; do
+    [ -s "$REPORT_DIR/$f" ] || continue
+    if ! python3 - "$REPORT_DIR/$f" <<'PY'
+import json, pathlib, sys
+p = pathlib.Path(sys.argv[1])
+if p.suffix not in {'.json', '.sarif'}:
+    raise SystemExit(0)
+data = json.loads(p.read_text())
+if data.get('status') == 'error':
+    raise SystemExit(1)
+if any(inv.get('executionSuccessful') is False for run in data.get('runs', []) for inv in run.get('invocations', [])):
+    raise SystemExit(1)
+PY
+    then
+      log_error "scanner error artifact: $f"
+      failures=$((failures + 1))
     fi
-  fi
+  done
 
-  if [ "$missing" -gt 0 ]; then
-    log_error "Completed with $missing missing report file(s)."
+
+  if [ "$failures" -gt 0 ]; then
+    log_error "Report validation failed for $failures artifact(s)."
     return 1
   fi
 
@@ -264,24 +464,24 @@ validate_reports() {
 
 # ─── MAIN ───
 case "${1:-}" in
-  trivy)     scan_trivy ;;
-  kustomize) scan_kustomize ;;
-  grype)     scan_grype ;;
-  gitleaks)  scan_gitleaks ;;
-  semgrep)   scan_semgrep ;;
-  syft)      scan_syft ;;
-  checkov)   scan_checkov ;;
+  trivy)     scan_trivy; exit $? ;;
+  kustomize) scan_kustomize; exit $? ;;
+  grype)     scan_grype; exit $? ;;
+  gitleaks)  scan_gitleaks; exit $? ;;
+  semgrep)   scan_semgrep; exit $? ;;
+  syft)      scan_syft; exit $? ;;
+  checkov)   scan_checkov; exit $? ;;
   validate)  validate_reports; exit $? ;;
   "")
-    scan_trivy
-    scan_kustomize
-    scan_grype
-    scan_gitleaks
-    scan_semgrep
-    scan_checkov
-    scan_syft
-    validate_reports
-    exit $?
+    scan_trivy || SCAN_STATUS=1
+    scan_kustomize || SCAN_STATUS=1
+    scan_grype || SCAN_STATUS=1
+    scan_gitleaks || SCAN_STATUS=1
+    scan_semgrep || SCAN_STATUS=1
+    scan_checkov || SCAN_STATUS=1
+    scan_syft || SCAN_STATUS=1
+    validate_reports || SCAN_STATUS=1
+    exit "${SCAN_STATUS}"
     ;;
   *)
     echo "Usage: $0 [trivy|grype|gitleaks|semgrep|checkov|syft|kustomize|validate]" >&2

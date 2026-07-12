@@ -9,7 +9,12 @@ PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 # shellcheck source=scripts/lib/common.sh
 source "${PROJECT_ROOT}/scripts/lib/common.sh"
 COMMON_REQUIRE_CONFIG=true
+ENV_GITHUB_USER="${GITHUB_USER-}"
+ENV_GITHUB_TOKEN="${GITHUB_TOKEN-}"
 common::load_config "${PROJECT_ROOT}/config.env"
+[[ -z "${ENV_GITHUB_USER}" ]] || GITHUB_USER="${ENV_GITHUB_USER}"
+[[ -z "${ENV_GITHUB_TOKEN}" ]] || GITHUB_TOKEN="${ENV_GITHUB_TOKEN}"
+unset ENV_GITHUB_USER ENV_GITHUB_TOKEN
 common::install_traps
 
 # shellcheck source=scripts/lib/cluster.sh
@@ -28,32 +33,6 @@ FLUX_SEMVER_MODE="disabled"
 TAILSCALE_MODE="skipped"
 OPENBAO_POST_SETUP_REQUIRED="yes"
 
-openbao::ensure_tls_secret() {
-  log::section "3.5. Generating OpenBao TLS certificate"
-  kubectl apply -f "${PROJECT_ROOT}/infrastructure/namespaces/openbao.yaml"
-
-  if k8s::secret_exists "${OPENBAO_NS}" "openbao-tls"; then
-    log::info "OpenBao TLS secret already exists; skipping."
-    return 0
-  fi
-
-  local cert_file
-  local key_file
-  common::mktemp_var cert_file /tmp/openbao-tls.XXXXXX.crt
-  common::mktemp_var key_file /tmp/openbao-tls.XXXXXX.key
-
-  log::info "Generating self-signed TLS cert for OpenBao."
-  openssl req -x509 -nodes -newkey rsa:2048 \
-    -keyout "${key_file}" -out "${cert_file}" \
-    -days 3650 -subj "/CN=openbao.openbao.svc.cluster.local" \
-    -addext "subjectAltName=DNS:openbao.openbao.svc.cluster.local,DNS:openbao.openbao.svc,DNS:openbao,DNS:localhost,IP:127.0.0.1" 2>/dev/null
-
-  kubectl create secret tls openbao-tls \
-    --namespace="${OPENBAO_NS}" \
-    --cert="${cert_file}" \
-    --key="${key_file}"
-  log::success "OpenBao TLS secret created."
-}
 
 openbao::annotate_tailscale_service() {
   log::section "4.5. Configuring Tailscale annotations on OpenBao"
@@ -73,7 +52,7 @@ tailscale::install_if_configured() {
   log::section "5. Installing Tailscale Operator (optional)"
   if [[ -n "${TAILSCALE_CLIENT_ID:-}" && -n "${TAILSCALE_CLIENT_SECRET:-}" ]]; then
     TAILSCALE_MODE="enabled"
-    tailscale::install_full
+    tailscale::install_full ""
   else
     TAILSCALE_MODE="skipped (missing OAuth credentials)"
     log::warn "TAILSCALE_CLIENT_ID or TAILSCALE_CLIENT_SECRET not set. Skipping Tailscale operator."
@@ -114,14 +93,13 @@ MSG
 }
 
 main() {
-  common::require_commands kind kubectl openssl python3
+  common::require_commands kind kubectl python3
 
   log::section "1. Creating kind cluster (rootless)"
   cluster::ensure_kind "${PROJECT_ROOT}/kind/cluster.yaml"
 
   setup::print_preflight_notes
 
-  openbao::ensure_tls_secret
 
   log::section "4. Bootstrapping Flux CD"
   flux::bootstrap_or_apply DEPLOYMENT_MODE FLUX_SEMVER_MODE

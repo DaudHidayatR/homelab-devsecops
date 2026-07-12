@@ -24,7 +24,6 @@ common::load_config "${PROJECT_ROOT}/config.env"
 source "${PROJECT_ROOT}/scripts/lib/openbao.sh"
 
 POLICY_DIR="${PROJECT_ROOT}/policies/openbao"
-REMOTE_POLICY_DIR="/tmp/openbao-policies"
 ENABLE_JWT="false"
 SSH_ROLE_NAME="admin"
 SSH_ALLOWED_USERS="*"
@@ -65,13 +64,6 @@ if [ "${1:-}" = "--enable-jwt" ]; then
   ENABLE_JWT="true"
 fi
 
-_bao_exec() {
-  openbao::exec "$@"
-}
-
-_bao_exec_quiet() {
-  openbao::exec_quiet "$@"
-}
 
 require_file() {
   common::require_file "$1"
@@ -111,33 +103,33 @@ ensure_entity_and_alias() {
   local accessor
   local alias_name
 
-  if _bao_exec "bao read identity/entity/name/'$policy' >/dev/null 2>&1"; then
-    entity_id=$(_bao_exec "bao read -field=id identity/entity/name/'$policy'")
-    _bao_exec "bao write identity/entity/id/'$entity_id' \
-      policies='$policy' \
-      metadata=managed_by='openbao-apply-policies' \
-      metadata=policy='$policy' \
-      metadata=service_account_namespace='$namespace' \
-      metadata=service_account_name='$service_account'" >/dev/null
+  if openbao::exec read identity/entity/name/"$policy"; then
+    entity_id=$(openbao::exec read -field=id identity/entity/name/"$policy")
+    openbao::exec write identity/entity/id/"${entity_id}" \
+      policies="${policy}" \
+      metadata=managed_by=openbao-apply-policies \
+      metadata=policy="${policy}" \
+      metadata=service_account_namespace="${namespace}" \
+      metadata=service_account_name="${service_account}" >/dev/null
   else
-    entity_id=$(_bao_exec "bao write -field=id identity/entity \
-      name='$policy' \
-      policies='$policy' \
-      metadata=managed_by='openbao-apply-policies' \
-      metadata=policy='$policy' \
-      metadata=service_account_namespace='$namespace' \
-      metadata=service_account_name='$service_account'")
+    entity_id=$(openbao::exec write -field=id identity/entity \
+      name="${policy}" \
+      policies="${policy}" \
+      metadata=managed_by=openbao-apply-policies \
+      metadata=policy="${policy}" \
+      metadata=service_account_namespace="${namespace}" \
+      metadata=service_account_name="${service_account}")
   fi
 
   echo "  Ensured entity: identity/entity/name/$policy"
 
   if [ "$create_alias" = "true" ]; then
-    accessor=$(_bao_exec "bao read -field=accessor sys/auth/kubernetes")
+    accessor=$(openbao::exec read -field=accessor sys/auth/kubernetes)
     alias_name="system:serviceaccount:${namespace}:${service_account}"
-    _bao_exec "bao write identity/entity-alias \
-      name='$alias_name' \
-      canonical_id='$entity_id' \
-      mount_accessor='$accessor'" >/dev/null || true
+    openbao::exec write identity/entity-alias \
+      name="${alias_name}" \
+      canonical_id="${entity_id}" \
+      mount_accessor="${accessor}" >/dev/null
     echo "  Ensured alias: $alias_name"
   fi
 }
@@ -147,11 +139,11 @@ ensure_kubernetes_role() {
   local namespace="$2"
   local service_account="$3"
 
-  _bao_exec "bao write auth/kubernetes/role/'$policy' \
-    bound_service_account_names='$service_account' \
-    bound_service_account_namespaces='$namespace' \
-    policies='$policy' \
-    ttl=1h" >/dev/null
+  openbao::exec write auth/kubernetes/role/"${policy}" \
+    bound_service_account_names="${service_account}" \
+    bound_service_account_namespaces="${namespace}" \
+    policies="${policy}" \
+    ttl=1h >/dev/null
 
   echo "  Ensured Kubernetes role: auth/kubernetes/role/$policy -> ${namespace}/${service_account}"
 }
@@ -172,20 +164,15 @@ validate_policy_registry
 ROOT_TOKEN="$(openbao::load_root_token)"
 
 # Verify authentication without printing or storing the token in OpenBao CLI config.
-_bao_exec "bao token lookup >/dev/null"
+openbao::exec token lookup
 echo "Authenticated to OpenBao."
 echo ""
 
-echo "=== Copying policy files into OpenBao pod ==="
-_bao_exec "rm -rf '$REMOTE_POLICY_DIR' && mkdir -p '$REMOTE_POLICY_DIR'"
-kubectl cp "$POLICY_DIR/." "${OPENBAO_NS}/${OPENBAO_POD}:${REMOTE_POLICY_DIR}"
-echo "  Copied policies/openbao/ functional policy tree to ${OPENBAO_POD}:${REMOTE_POLICY_DIR}"
-echo ""
 
 echo "=== Applying policies from registry ==="
 for policy_entry in "${POLICY_FILES[@]}"; do
   IFS='|' read -r policy relative_path <<< "$policy_entry"
-  _bao_exec "bao policy write '$policy' '${REMOTE_POLICY_DIR}/${relative_path}'" >/dev/null
+  openbao::exec_stdin policy write "${policy}" - < "${POLICY_DIR}/${relative_path}"
   echo "  Applied policy: $policy ($relative_path)"
 done
 echo ""
@@ -211,14 +198,14 @@ echo ""
 
 echo "=== Ensuring SSH client-signer admin role ==="
 
-if _bao_exec_quiet "bao secrets list -format=json" | python3 -c "import json,sys; d=json.load(sys.stdin); print('ssh-client-signer/' in d)" 2>/dev/null | grep -q True; then
-  _bao_exec "bao write ssh-client-signer/roles/'$SSH_ROLE_NAME' \
-    algorithm_signer='rsa-sha2-256' \
+if openbao::exec_quiet secrets list -format=json | python3 -c "import json,sys; d=json.load(sys.stdin); print('ssh-client-signer/' in d)" 2>/dev/null | grep -q True; then
+  openbao::exec write ssh-client-signer/roles/"${SSH_ROLE_NAME}" \
+    algorithm_signer=rsa-sha2-256 \
     allow_user_certificates=true \
-    allowed_users='$SSH_ALLOWED_USERS' \
-    default_user='$SSH_DEFAULT_USER' \
-    key_type='ca' \
-    ttl='30m'" >/dev/null
+    allowed_users="${SSH_ALLOWED_USERS}" \
+    default_user="${SSH_DEFAULT_USER}" \
+    key_type=ca \
+    ttl=30m >/dev/null
   echo "  Ensured SSH role: ssh-client-signer/roles/$SSH_ROLE_NAME"
   echo "    allowed_users: $SSH_ALLOWED_USERS"
   echo "    default_user:  $SSH_DEFAULT_USER"
@@ -235,25 +222,25 @@ if [ "$ENABLE_JWT" = "true" ]; then
   fi
 
   echo "=== Ensuring GitHub OIDC JWT auth ==="
-  if _bao_exec_quiet "bao auth list -format=json" | python3 -c "import json,sys; d=json.load(sys.stdin); print('jwt/' in d)" 2>/dev/null | grep -q True; then
+  if openbao::exec_quiet auth list -format=json | python3 -c "import json,sys; d=json.load(sys.stdin); print('jwt/' in d)" 2>/dev/null | grep -q True; then
     echo "  JWT auth already enabled."
   else
-    _bao_exec "bao auth enable jwt"
+    openbao::exec auth enable jwt
     echo "  Enabled JWT auth."
   fi
 
-  _bao_exec "bao write auth/jwt/config \
-    oidc_discovery_url='https://token.actions.githubusercontent.com' \
-    bound_issuer='https://token.actions.githubusercontent.com'" >/dev/null
+  openbao::exec write auth/jwt/config \
+    oidc_discovery_url=https://token.actions.githubusercontent.com \
+    bound_issuer=https://token.actions.githubusercontent.com >/dev/null
 
   BOUND_CLAIMS="{\"sub\":\"repo:${GITHUB_REPOSITORY}:ref:refs/tags/v*\"}"
-  _bao_exec "bao write auth/jwt/role/ci-deployer \
-    role_type='jwt' \
-    user_claim='sub' \
-    bound_claims_type='glob' \
-    bound_claims='${BOUND_CLAIMS}' \
-    policies='ci-deployer' \
-    ttl='15m'" >/dev/null
+  openbao::exec write auth/jwt/role/ci-deployer \
+    role_type=jwt \
+    user_claim=sub \
+    bound_claims_type=glob \
+    bound_claims="${BOUND_CLAIMS}" \
+    policies=ci-deployer \
+    ttl=15m >/dev/null
   echo "  Ensured role: auth/jwt/role/ci-deployer for repo ${GITHUB_REPOSITORY} tag releases."
   echo ""
 else
@@ -264,12 +251,12 @@ fi
 
 echo "=== Verification ==="
 echo "Policies:"
-_bao_exec "bao policy list"
+openbao::exec policy list
 echo ""
 echo "Kubernetes roles:"
-_bao_exec "bao list auth/kubernetes/role"
+openbao::exec list auth/kubernetes/role
 echo ""
 echo "Entities:"
-_bao_exec "bao list identity/entity/name"
+openbao::exec list identity/entity/name
 echo ""
 echo "OpenBao policy-as-code apply complete."

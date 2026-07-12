@@ -40,9 +40,9 @@ make access-info
 
 Lifecycle:
 
-1. `scripts/cluster/setup.sh` / `make up` deploys OpenBao and creates the `openbao-tls` Kubernetes Secret used by lab access integration.
-2. `scripts/openbao/bootstrap.sh` initializes OpenBao if needed, unseals it, enables required engines/auth methods, writes baseline policies, and creates the ESO Kubernetes auth role.
-3. `scripts/openbao/apply-policies.sh` is the repeatable policy reconciliation entrypoint for registered policy files under `policies/openbao/` and explicit Kubernetes identity mappings.
+1. `scripts/cluster/setup.sh` / `make up` deploys OpenBao through Flux using the lab's HTTP listener model.
+2. `scripts/openbao/bootstrap.sh` initializes OpenBao if needed, unseals it, enables required engines/auth methods, then delegates policy reconciliation.
+3. `scripts/openbao/apply-policies.sh` is the single policy reconciliation entrypoint for registered files and explicit Kubernetes auth/entity mappings.
 4. `scripts/openbao/create-user.sh` creates human `userpass` users and optional per-user SSH signing roles.
 5. `scripts/openbao/create-approle.sh` creates machine/CI AppRoles with response-wrapped single-use SecretIDs.
 6. `scripts/openbao/store-rabbitmq.sh` writes RabbitMQ credentials into OpenBao KV v2.
@@ -55,8 +55,8 @@ No standing OpenBao human user or machine AppRole is required by default.
 Recommended explicit creation:
 
 ```bash
-make openbao-create-user USER=alice PASSWORD='change-me' POLICY=user-default SSH=true
-make openbao-create-user USER=sagash PASSWORD='change-me' POLICY=user-default,system-admin,user-ssh SSH=true
+OPENBAO_USER=alice OPENBAO_PASSWORD='change-me' OPENBAO_POLICY=user-default OPENBAO_SSH=true make openbao-create-user
+OPENBAO_USER=sagash OPENBAO_PASSWORD='change-me' OPENBAO_POLICY=user-default,system-admin,user-ssh OPENBAO_SSH=true make openbao-create-user
 make openbao-create-approle ROLE=ci-robot POLICY=ci-deployer
 ```
 
@@ -93,7 +93,6 @@ Examples include root token backup, unseal key backup, AppRole RoleID files, and
 | `scripts/access/show-info.sh` | Access info | Print local and tailnet URLs plus post-setup reminders | Yes | No | No | Script output |
 | `scripts/security/scan.sh` | Security validation | Run local scanner suite through containers and validate generated reports | Yes | No | No | `make validate` |
 | `scripts/git/auto-purge-secret.sh` | Emergency Git cleanup | Rewrite Git history to remove leaked secrets, with Gitleaks-assisted discovery | Destructive; use with care | No | No | Gitleaks clean scan |
-| `scripts/git/purge-secret-history.sh` | Legacy Git cleanup | Basic older secret-history purge helper | Destructive; use with care | No | No | Manual history verification |
 
 ## OpenBao script details
 
@@ -147,11 +146,11 @@ Important behavior:
 Use for human access.
 
 ```bash
-make openbao-create-user USER=alice PASSWORD='change-me' POLICY=user-default SSH=true
-make openbao-create-user USER=sagash PASSWORD='change-me' POLICY=user-default,system-admin,user-ssh SSH=true
+OPENBAO_USER=alice OPENBAO_PASSWORD='change-me' OPENBAO_POLICY=user-default OPENBAO_SSH=true make openbao-create-user
+OPENBAO_USER=sagash OPENBAO_PASSWORD='change-me' OPENBAO_POLICY=user-default,system-admin,user-ssh OPENBAO_SSH=true make openbao-create-user
 # or
-bash scripts/openbao/create-user.sh alice 'change-me' user-default --ssh
-bash scripts/openbao/create-user.sh sagash 'change-me' user-default,system-admin,user-ssh --ssh
+OPENBAO_USER=alice OPENBAO_PASSWORD='change-me' OPENBAO_POLICY=user-default OPENBAO_SSH=true bash scripts/openbao/create-user.sh
+OPENBAO_USER=sagash OPENBAO_PASSWORD='change-me' OPENBAO_POLICY=user-default,system-admin,user-ssh OPENBAO_SSH=true bash scripts/openbao/create-user.sh
 ```
 
 Behavior:
@@ -217,19 +216,19 @@ TAILSCALE_CLIENT_ID
 TAILSCALE_CLIENT_SECRET
 ```
 
-When enabled, setup creates the OAuth Secret, installs the operator, annotates the OpenBao service, configures Tailscale Serve through `scripts/tailscale/configure-serve.sh`, and deploys the Serve watcher.
+When enabled, setup creates the OAuth Secret, installs the operator, annotates the OpenBao service, and configures Tailscale Serve through the single selector at `scripts/tailscale/configure-serve.sh`.
 
 Manual/recovery helpers live mostly in `scripts/tailscale/`:
 
 ```bash
-./scripts/tailscale/restore-state.sh latest
+BACKUP_DIR=.runtime-backups/tailscale/<timestamp> make recover
 ./scripts/tailscale/reset-proxies.sh
 ./scripts/tailscale/sign-proxies.sh --sudo
 ./scripts/tailscale/check-access.sh
 ./scripts/tailscale/configure-serve.sh
 ```
 
-Use the recovery path before or immediately after a full cluster rebuild to avoid duplicate Tailscale operator/proxy devices.
+Use `make recover` for a full cluster rebuild so validated identity is restored before the operator starts.
 
 ## Security scanning
 
@@ -254,7 +253,7 @@ Generated reports are ignored by Git.
 
 ## Emergency Git secret cleanup scripts
 
-`auto-purge-secret.sh` and `purge-secret-history.sh` are retained as emergency tools for removing leaked secrets from Git history. These scripts rewrite history and can disrupt collaborators.
+`auto-purge-secret.sh` is the reviewed emergency tool for removing leaked secrets from Git history. It rewrites history and can disrupt collaborators.
 
 Use only after:
 
@@ -264,4 +263,4 @@ Use only after:
 - testing on a fork or disposable clone
 - confirming you have permission to force-push
 
-Prefer `auto-purge-secret.sh` because it includes better discovery and validation. `purge-secret-history.sh` is legacy/manual.
+Use `auto-purge-secret.sh` with a reviewed `purge-config.toml` configuration.
