@@ -167,7 +167,15 @@ jobs:
         run: |
           mkdir -p rendered-manifests
           rendered=0
-          for overlay in clusters/kind infrastructure apps .; do
+          for overlay in \
+            kubernetes/clusters/homelab/bootstrap \
+            kubernetes/clusters/homelab/cluster-resources \
+            kubernetes/clusters/homelab/platform \
+            kubernetes/clusters/homelab/cluster-policies \
+            kubernetes/clusters/homelab/operations \
+            kubernetes/clusters/homelab/apps \
+            kubernetes/clusters/homelab/flux \
+            kubernetes/clusters/homelab; do
             if [ -f "$overlay/kustomization.yaml" ] || \
                [ -f "$overlay/kustomization.yml" ] || \
                [ -f "$overlay/Kustomization" ]; then
@@ -184,16 +192,21 @@ jobs:
             echo "has_manifests=false" >> "$GITHUB_OUTPUT"
           fi
       - name: Conftest
-        if: steps.kustomize.outputs.has_manifests == 'true' && hashFiles('policies/') != ''
+        if: >-
+          steps.kustomize.outputs.has_manifests == 'true' &&
+          hashFiles('kubernetes/clusters/homelab/cluster-policies/**/*.rego') != ''
         continue-on-error: true
         run: |
-          docker run --rm -v "$PWD:/src" -w /src "$CONFTEST_IMAGE" test --policy /src/policies/ /src/rendered-manifests/
+          docker run --rm -v "$PWD:/src" -w /src "$CONFTEST_IMAGE" test \
+            --policy /src/kubernetes/clusters/homelab/cluster-policies/ /src/rendered-manifests/
       - name: Kyverno policy check
-        if: steps.kustomize.outputs.has_manifests == 'true' && hashFiles('policies/') != ''
+        if: >-
+          steps.kustomize.outputs.has_manifests == 'true' &&
+          hashFiles('kubernetes/clusters/homelab/cluster-policies/**/*.yaml') != ''
         continue-on-error: true
         run: |
           docker run --rm -v "$PWD:/src" -w /src "$KYVERNO_IMAGE" \
-            apply /src/policies/ --resource /src/rendered-manifests.yaml || true
+            apply /src/kubernetes/clusters/homelab/cluster-policies/ --resource /src/rendered-manifests.yaml || true
 
   deploy:
     name: Deploy (Flux reconcile via Tailscale)
@@ -226,7 +239,10 @@ jobs:
       - name: Verify cluster connectivity
         run: kubectl cluster-info
 
-      - name: Install Flux controllers if missing
+      - name: Install Flux controllers and source
+        env:
+          REPOSITORY_URL: https://github.com/${{ github.repository }}.git
+          GIT_TOKEN: ${{ github.token }}
         run: |
           if ! kubectl get crd gitrepositories.source.toolkit.fluxcd.io >/dev/null 2>&1; then
             echo "Flux CRDs not found. Installing Flux controllers..."
@@ -237,27 +253,42 @@ jobs:
           kubectl wait --for=condition=Available deployment/source-controller -n flux-system --timeout=180s
           kubectl wait --for=condition=Available deployment/kustomize-controller -n flux-system --timeout=180s
           kubectl wait --for=condition=Available deployment/helm-controller -n flux-system --timeout=180s
+          kubectl create secret generic flux-system -n flux-system \
+            --from-literal=username=git \
+            --from-literal=password="${GIT_TOKEN}" \
+            --dry-run=client -o yaml | kubectl apply -f -
 
-      - name: Configure Flux Git source for semver tags
-        run: |
-          # Switch Flux from branch-based to semver-based.
-          # The source controller will only reconcile when new semver tags appear.
-          # Pushes to main are IGNORED by Flux -- only v* tags trigger deployment.
-          kubectl patch gitrepository flux-system -n flux-system \
-            --type merge -p '{"spec":{"ref":{"semver":">=0.0.0"},"interval":"1m"}}'
-          echo "Flux now watches semver tags (>=0.0.0) -- main pushes do NOT trigger deploys."
-          kubectl get gitrepository flux-system -n flux-system -o yaml
+          if kubectl get gitrepository flux-system -n flux-system >/dev/null 2>&1; then
+            kubectl patch gitrepository flux-system -n flux-system \
+              --type merge -p '{"spec":{"ref":{"semver":">=0.0.0"},"interval":"1m"}}'
+          else
+            kubectl apply -f - <<EOF
+          apiVersion: source.toolkit.fluxcd.io/v1
+          kind: GitRepository
+          metadata:
+            name: flux-system
+            namespace: flux-system
+          spec:
+            interval: 1m
+            url: ${REPOSITORY_URL}
+            ref:
+              semver: ">=0.0.0"
+            secretRef:
+              name: flux-system
+          EOF
+          fi
+          kubectl wait gitrepository/flux-system -n flux-system --for=condition=Ready --timeout=5m
 
-          kubectl apply -k clusters/kind
+          kubectl apply -k kubernetes/clusters/homelab
 
       - name: Reconcile Flux sources
         run: flux reconcile source git flux-system --timeout=5m
 
-      - name: Reconcile infrastructure
-        run: flux reconcile kustomization infrastructure --timeout=10m
-
-      - name: Reconcile apps
-        run: flux reconcile kustomization apps --timeout=10m
+      - name: Reconcile layered cluster state
+        run: |
+          for layer in bootstrap cluster-resources platform openbao-config cluster-policies operations apps; do
+            flux reconcile kustomization "$layer" --timeout=10m
+          done
 
       - name: Debug apps reconciliation failure
         if: failure()

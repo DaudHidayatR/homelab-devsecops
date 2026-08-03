@@ -12,7 +12,7 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/kubernetes.sh"
 
 : "${FLUX_GITHUB_BRANCH:=main}"
-: "${FLUX_CLUSTER_PATH:=./clusters/kind}"
+: "${FLUX_CLUSTER_PATH:=./kubernetes/clusters/homelab}"
 
 
 flux::bootstrap_or_apply() {

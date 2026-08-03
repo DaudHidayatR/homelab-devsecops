@@ -13,7 +13,7 @@
 - Never commit credentials or interpolate secrets into shell source. Pass secret data through environment, argv, or stdin.
 - Preserve OpenBao CLI arguments through `openbao::exec`; do not add remote `sh -c` command strings.
 - Before deleting or rebuilding a cluster, validate and atomically back up the Tailscale operator identity. Restore it before starting the operator.
-- Git-history cleanup rewrites shared history. Rotate credentials first and use only `scripts/git/auto-purge-secret.sh` with reviewed configuration.
+- Git-history cleanup is unsupported until a reviewed implementation is added. Rotate or revoke exposed credentials before any history rewrite.
 
 ## Knowledge sources
 - `raw/` is immutable source material; never modify it.
