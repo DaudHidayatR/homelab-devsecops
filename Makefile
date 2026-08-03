@@ -1,75 +1,59 @@
 .PHONY: up down recover scan tailscale tailscale-reset tailscale-sign tailscale-check status access-info help validate-kustomize sync redeploy flux-status flux-diff security sast secrets sca sbom iac validate clean prune-branches prune-branches-force tag openbao-policies openbao-status openbao-create-user openbao-create-approle lint-sh fmt-sh check-sh syntax-sh
 
+
 up:
-	./scripts/cluster/setup.sh
+	./scripts/homelab cluster up
 
 down:
-	./scripts/cluster/destroy.sh
+	./scripts/homelab cluster down
 
 scan:
-	bash scripts/security/scan.sh
+	./scripts/homelab security scan
 
 tailscale:
-	./scripts/tailscale/install-operator.sh
+	./scripts/homelab tailscale install
 
 tailscale-reset:
-	./scripts/tailscale/reset-proxies.sh
+	./scripts/homelab tailscale reset
 
 tailscale-sign:
-	./scripts/tailscale/sign-proxies.sh --sudo
+	./scripts/homelab tailscale sign --sudo
 
 tailscale-check:
-	./scripts/tailscale/check-access.sh
+	./scripts/homelab tailscale check
 
 recover:
 	@if [ -z "$$BACKUP_DIR" ]; then echo "Usage: BACKUP_DIR=<validated-backup-directory> make recover" >&2; exit 1; fi
-	@bash scripts/cluster/recover.sh "$$BACKUP_DIR"
+	@./scripts/homelab cluster recover "$$BACKUP_DIR"
 
 status:
 	kubectl get pods -A
 
 access-info:
-	./scripts/access/show-info.sh
+	./scripts/homelab cluster info
 
 openbao-policies:
-	bash scripts/openbao/apply-policies.sh
+	./scripts/homelab openbao policies
 
 openbao-status:
-	bash scripts/openbao/status.sh
+	./scripts/homelab openbao status
 
 openbao-create-user:
 	@if [ -z "$$OPENBAO_USER" ] || [ -z "$$OPENBAO_PASSWORD" ]; then \
 		echo "Usage: OPENBAO_USER=<username> OPENBAO_PASSWORD=<password> [OPENBAO_POLICY=user-default] [OPENBAO_SSH=true] make openbao-create-user"; \
 		exit 1; \
 	fi
-	@bash scripts/openbao/create-user.sh
+	@./scripts/homelab openbao create-user
 
 openbao-create-approle:
 	@if [ -z "$(ROLE)" ] || [ -z "$(POLICY)" ]; then \
 		echo "Usage: make openbao-create-approle ROLE=<role-name> POLICY=<policy>"; \
 		exit 1; \
 	fi
-	bash scripts/openbao/create-approle.sh "$(ROLE)" "$(POLICY)"
+	./scripts/homelab openbao create-approle "$(ROLE)" "$(POLICY)"
 
 validate-kustomize:
-	@echo "Validating cluster entrypoint overlay..."
-	kubectl kustomize clusters/kind >/dev/null && echo "  ✓ clusters/kind valid"
-	@echo "Validating root fallback aggregate..."
-	kubectl kustomize . >/dev/null && echo "  ✓ Root overlay valid"
-	@echo "Validating Flux apps overlay..."
-	kubectl kustomize apps >/dev/null && echo "  ✓ apps valid"
-	@echo "Validating apps/demo overlay..."
-	kubectl kustomize apps/demo >/dev/null && echo "  ✓ apps/demo valid"
-	@echo "Validating apps/rabbitmq overlay..."
-	kubectl kustomize apps/rabbitmq >/dev/null && echo "  ✓ apps/rabbitmq valid"
-	@echo "Validating apps/headlamp overlay..."
-	kubectl kustomize apps/headlamp >/dev/null && echo "  ✓ apps/headlamp valid"
-	@echo "Validating infrastructure overlay..."
-	kubectl kustomize infrastructure >/dev/null && echo "  ✓ infrastructure valid"
-	@echo "Validating infrastructure/openbao overlay..."
-	kubectl kustomize infrastructure/openbao >/dev/null && echo "  ✓ infrastructure/openbao valid"
-	@echo "Validating infrastructure/external-secrets overlay..."
-	kubectl kustomize infrastructure/external-secrets >/dev/null && echo "  ✓ infrastructure/external-secrets valid"
+	bash kubernetes/scripts/validate.sh
 
 sync:
 	@command -v flux >/dev/null 2>&1 || { echo "Flux CLI is required for sync" >&2; exit 1; }
@@ -77,7 +61,12 @@ sync:
 	@test "$$(kubectl get gitrepository flux-system -n flux-system -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}')" = True || { echo "Flux GitRepository flux-system is not Ready" >&2; exit 1; }
 	@echo "Triggering Flux reconciliation..."
 	@flux reconcile source git flux-system
-	@flux reconcile kustomization infrastructure
+	@flux reconcile kustomization bootstrap
+	@flux reconcile kustomization cluster-resources
+	@flux reconcile kustomization platform
+	@flux reconcile kustomization openbao-config
+	@flux reconcile kustomization cluster-policies
+	@flux reconcile kustomization operations
 	@flux reconcile kustomization apps
 
 redeploy: sync
@@ -93,25 +82,25 @@ flux-diff:
 	flux diff kustomization apps
 
 security: ## Run full security scan suite
-	@bash scripts/security/scan.sh
+	@./scripts/homelab security scan
 
 sast: ## Run SAST only (Semgrep + Checkov)
-	@status=0; bash scripts/security/scan.sh semgrep || status=1; bash scripts/security/scan.sh checkov || status=1; exit $$status
+	@status=0; ./scripts/homelab security scan semgrep || status=1; ./scripts/homelab security scan checkov || status=1; exit $$status
 
 secrets: ## Run secret detection only (GitLeaks)
-	@bash scripts/security/scan.sh gitleaks
+	@./scripts/homelab security scan gitleaks
 
 sca: ## Run SCA only (Trivy + Grype)
-	@status=0; bash scripts/security/scan.sh trivy || status=1; bash scripts/security/scan.sh grype || status=1; exit $$status
+	@status=0; ./scripts/homelab security scan trivy || status=1; ./scripts/homelab security scan grype || status=1; exit $$status
 
 sbom: ## Generate SBOMs only (Syft)
-	@bash scripts/security/scan.sh syft
+	@./scripts/homelab security scan syft
 
 iac: ## Run IaC scan only (Kustomize)
-	@bash scripts/security/scan.sh kustomize
+	@./scripts/homelab security scan kustomize
 
 validate: ## Validate report files exist
-	@bash scripts/security/scan.sh validate
+	@./scripts/homelab security scan validate
 
 clean: ## Remove generated reports
 	rm -f trivy-report.json trivy-report.sarif trivy-report.txt

@@ -1,6 +1,6 @@
 # Minimal Rootless Kubernetes & Istio Lab
 
-A minimal, rootless local development environment using `kind`, Istio, and RabbitMQ. Designed for learning service mesh basics and asynchronous messaging without heavy resource overhead.
+A minimal, rootless local development environment using `kind` and Istio. Designed for learning service mesh basics without heavy resource overhead.
 
 ## Prerequisites
 - Linux OS
@@ -12,15 +12,19 @@ A minimal, rootless local development environment using `kind`, Istio, and Rabbi
 - `flux` CLI *(optional; enables GitOps reconciliation. Install from [fluxcd.io](https://fluxcd.io/flux/installation/))*
 
 ## Project Structure
-The configuration is modularized into logical directories:
-- `clusters/kind/`: Flux CD GitOps entry point — `Kustomization` CRDs that reconcile `infrastructure/` and `apps/`.
-- `infrastructure/`: Foundational cluster resources — namespaces (demo, messaging, openbao, istio-system), OpenBao (HelmRelease, NetworkPolicies), and Istio (HelmRelease + mTLS).
-- `kind/`: Cluster bootstrapping configurations.
-- `patches/`: Strategic merge patches applied to resources (e.g., Pod Security Standards labels on Namespaces).
-- `apps/`: Flux-managed application overlays. Aggregates `apps/demo/`, `apps/rabbitmq/`, and `apps/headlamp/` through `apps/kustomization.yaml`.
-- `apps/rabbitmq/`: RabbitMQ message broker manifests in a dedicated namespace (kept outside the mesh).
-- `apps/headlamp/`: Kubernetes Web UI manifests for visual management.
-- `config.env`: Centralized constants (cluster name, namespaces, image versions) shared by scripts and manifests.
+
+All desired cluster state lives below `kubernetes/`:
+
+- `kubernetes/clusters/homelab/flux/`: ordered Flux reconciliation layers.
+- `kubernetes/clusters/homelab/bootstrap/`: namespaces and local kind cluster configuration.
+- `kubernetes/clusters/homelab/cluster-resources/`: cluster-scoped RBAC, storage, networking, and admission resources.
+- `kubernetes/clusters/homelab/platform/`: OpenBao, Istio, and future platform services.
+- `kubernetes/clusters/homelab/apps/`: application-owned manifests.
+- `kubernetes/clusters/homelab/operations/`: operational Jobs and CronJobs.
+- `kubernetes/clusters/homelab/cluster-policies/`: policy and governance sources.
+- `kubernetes/components/`: reusable Kustomize components.
+- `kubernetes/scripts/`: validation, diff, and health wrappers.
+- `config.env`: local script configuration.
 
 ## Usage
 1. Make the scripts executable:
@@ -34,7 +38,7 @@ The configuration is modularized into logical directories:
    ```
    Or run the setup script directly:
    ```bash
-   ./scripts/cluster/setup.sh
+   ./scripts/homelab cluster up
    ```
 
 Common workflows:
@@ -50,7 +54,7 @@ Common workflows:
 | `make flux-status` | Show Flux resource status |
 | `make flux-diff` | Show pending changes for Flux-managed resources |
 
-Components are deployed via **Flux CD** when `GITHUB_TOKEN` and `GITHUB_USER` are configured. Flux continuously reconciles `infrastructure/` first, then `apps/` after infrastructure is ready. If Flux is not available, `scripts/cluster/setup.sh` falls back to applying `infrastructure/` then `apps/` sequentially via `kubectl apply -k`.
+Flux bootstraps at `kubernetes/clusters/homelab` and reconciles ordered layers: bootstrap, cluster resources, platform, cluster policies, operations, then apps.
 
 ### Setup Modes
 
@@ -58,19 +62,19 @@ Components are deployed via **Flux CD** when `GITHUB_TOKEN` and `GITHUB_USER` ar
 
 | Condition | Deployment behavior | Required inputs | What remains manual |
 |---|---|---|---|
-| `flux` CLI is installed, `flux check --pre` passes, and `GITHUB_USER` + `GITHUB_TOKEN` are set | Flux bootstraps from GitHub and reconciles `clusters/kind` | `GITHUB_USER`, `GITHUB_TOKEN` | OpenBao init/unseal and ESO OpenBao store activation |
+| `flux` CLI is installed, `flux check --pre` passes, and `GITHUB_USER` + `GITHUB_TOKEN` are set | Flux bootstraps from GitHub and reconciles `kubernetes/clusters/homelab` | `GITHUB_USER`, `GITHUB_TOKEN` | OpenBao init/unseal |
 | Flux bootstrap succeeds and `FLUX_GIT_TAG` is set | Flux GitRepository is patched to watch semver tags instead of branch `main` | `FLUX_GIT_TAG`, for example `>=0.0.0` | Push a semver tag to deploy new changes |
-| `flux` is missing, Flux preflight fails, or GitHub credentials are absent | `scripts/cluster/setup.sh` falls back to direct `kubectl apply -k infrastructure` then `kubectl apply -k apps` | working `kubectl` context | No continuous GitOps reconciliation; run `make sync` or `kubectl apply -k` for updates |
+| Flux prerequisites are missing | Setup stops before applying desired state | working Flux and GitHub credentials | Resolve the reported prerequisite and rerun `make up` |
 | `TAILSCALE_CLIENT_ID` and `TAILSCALE_CLIENT_SECRET` are set | Tailscale namespace/OAuth Secret/operator are installed; OpenBao service is annotated; Serve config/watcher are applied | Tailscale OAuth client credentials | Tailnet Lock signing may still be required via `make tailscale-sign` |
 | Tailscale credentials are absent | Tailscale installation is skipped | none | Use port-forwarding or run `make tailscale` after credentials are configured |
-| Fresh OpenBao install | OpenBao pod is deployed but sealed/uninitialized | deployed OpenBao pod | Run `bash scripts/openbao/bootstrap.sh`, then seed app secrets and apply ESO stores |
+| Fresh OpenBao install | OpenBao pod is deployed but sealed/uninitialized | deployed OpenBao pod | Run `scripts/homelab openbao bootstrap` |
 | Existing initialized OpenBao | Bootstrap/status scripts can unseal and reconcile idempotent parts | root/admin token or local backup files | Re-run `make openbao-policies` after policy changes |
 
-After `make up`, check the final summary printed by `scripts/cluster/setup.sh`. It reports whether the run used Flux GitOps or direct apply fallback, whether semver mode is active, whether Tailscale was enabled, and which OpenBao/ESO steps are still pending.
+After `make up`, the summary reports Flux, semver, Tailscale, and OpenBao bootstrap state.
 
 ### Operational script map
 
-Detailed script purpose, prerequisites, idempotency, and verification guidance lives in [`scripts/README.md`](scripts/README.md). Policy behavior is documented in [`policies/README.md`](policies/README.md), and Tailscale access/recovery details live in [`tailscale/README.md`](tailscale/README.md).
+Detailed script guidance lives in [`scripts/README.md`](scripts/README.md); Tailscale access and recovery guidance lives in [`tailscale/README.md`](tailscale/README.md).
 
 ## Branch Management
 
@@ -93,9 +97,8 @@ All component image versions are defined directly in their respective manifests.
 
 | Component | Image Source | Controlled In |
 |-----------|-------------|---------------|
-| Headlamp | `config.env: HEADLAMP_IMAGE` / `HEADLAMP_VERSION` | `apps/headlamp/headlamp.yaml` (Deployment image) |
-| RabbitMQ | `config.env: RABBITMQ_IMAGE` | `apps/rabbitmq/core/deployment.yaml` (Deployment image) |
-| Sample App | `config.env: SAMPLE_APP_IMAGE` | `apps/demo/sample-app/deployment.yaml` (Deployment image) |
+| Headlamp | `config.env: HEADLAMP_IMAGE` / `HEADLAMP_VERSION` | `kubernetes/clusters/homelab/apps/headlamp/deployment.yaml` |
+| Sample App | `config.env: SAMPLE_APP_IMAGE` | `kubernetes/clusters/homelab/apps/sample-app/deployment.yaml` |
 
 To upgrade a component, update both `config.env` and the image field in the corresponding manifest. Version pinning ensures reproducible deployments across environments.
 
@@ -122,16 +125,19 @@ This project uses [Flux CD](https://fluxcd.io) to automatically reconcile cluste
    GITHUB_USER="your-github-username"
    GITHUB_TOKEN="ghp_xxxxxxxxxxxx"
    ```
-3. Run `make up` — `scripts/cluster/setup.sh` will bootstrap Flux after creating the cluster.
+3. Run `make up` — `scripts/homelab cluster up` bootstraps Flux after creating the cluster.
 
 ### How Flux Works Here
 
 | Flux Resource | Purpose |
 |-------------|---------|
-| `clusters/kind/infrastructure.yaml` | Reconciles namespaces and the OpenBao HelmRelease layer |
-| `clusters/kind/apps.yaml` | Reconciles the buildable `apps/` aggregate: demo app, RabbitMQ, and Headlamp |
-| `infrastructure/openbao/helmrepository.yaml` | Indexes the OpenBao Helm chart repository |
-| `infrastructure/openbao/helmrelease.yaml` | Declaratively installs/upgrades OpenBao |
+| `flux/kustomizations/00-bootstrap.yaml` | Reconciles namespaces and bootstrap prerequisites |
+| `flux/kustomizations/10-cluster-resources.yaml` | Reconciles cluster-scoped RBAC and future storage/network resources |
+| `flux/kustomizations/20-platform.yaml` | Reconciles OpenBao and Istio |
+| `flux/kustomizations/30-openbao-config.yaml` | Publishes versioned OpenBao policy sources after the OpenBao platform layer |
+| `flux/kustomizations/40-cluster-policies.yaml` | Reconciles deployable cluster policies |
+| `flux/kustomizations/50-operations.yaml` | Reconciles operational workloads |
+| `flux/kustomizations/60-apps.yaml` | Reconciles sample-app and Headlamp |
 
 ### Deployment Model: Semver-Based
 
@@ -202,11 +208,11 @@ production:
 
 ### One-Time Setup
 
-- **[VPS Tailscale Setup](wiki/docs/vps-tailscale-setup.md)** — Install Tailscale on the VPS host,
+- **[VPS Tailscale Setup](../../../document-project/web-documentasi/devsecops-homelab/template-wiki/Wiki/Concepts/network-and-trust-boundaries.md)** — Install Tailscale on the VPS host,
   get its Tailscale IP, and verify connectivity.
-- **[CI Deploy Secrets](wiki/docs/ci-deploy-secrets.md)** — Create the Tailscale OAuth client for CI,
+- **[CI Deploy Secrets](../../../document-project/web-documentasi/devsecops-homelab/template-wiki/Wiki/Concepts/secrets-lifecycle.md)** — Create the Tailscale OAuth client for CI,
   encode the kubeconfig, and configure GitHub Environment secrets.
-- **[Tailscale VPS Strategy](wiki/concepts/tailscale-vps-strategy.md)** — Full reference including
+- **[Tailscale VPS Strategy](../../../document-project/web-documentasi/devsecops-homelab/template-wiki/Wiki/Entities/tailscale.md)** — Full reference including
   security model, TLS cert handling, and troubleshooting.
 
 ### Manual Trigger
@@ -229,46 +235,24 @@ This setup includes Headlamp to manage your cluster visually.
    ```
 3. Open [http://localhost:8080](http://localhost:8080) in your browser and paste the token to log in.
 
-## Accessing RabbitMQ
-RabbitMQ is deployed to the `messaging` namespace.
-
-1. Port-forward the RabbitMQ Management UI:
-   ```bash
-   kubectl port-forward -n messaging svc/rabbitmq 15672:15672
-   ```
-2. Open [http://localhost:15672](http://localhost:15672) in your browser.
-3. Log in with credentials retrieved from the cluster secret:
-   ```bash
-   kubectl get secret rabbitmq-credentials -n messaging -o jsonpath='{.data.RABBITMQ_DEFAULT_PASS}' | base64 -d
-   ```
-
-### Inter-Service Communication
-Your microservices can connect to RabbitMQ using the internal cluster DNS. Retrieve the password from the Kubernetes secret or OpenBao:
-```
-RABBITMQ_URL=amqp://admin:<password>@rabbitmq.messaging.svc.cluster.local:5672
-```
-
 ## Accessing OpenBao (Secret Management)
 OpenBao is deployed to the `openbao` namespace via the official Helm chart using **single-node raft** storage. The lab listener serves HTTP inside the cluster, while Tailscale Serve provides external HTTPS access.
 
 ### First-Run OpenBao Bootstrap
 
-OpenBao initialization and unseal are intentionally manual. This keeps root tokens and unseal keys out of Git while still letting Flux manage the chart and External Secrets Operator controller.
+OpenBao initialization and unseal are intentionally manual. This keeps root tokens and unseal keys out of Git while Flux manages the chart.
 
 ### OpenBao operational lifecycle
 
 | Step | Command/resource | Purpose | Notes |
 |---|---|---|---|
-| Deploy platform | `make up` | Create kind cluster and deploy OpenBao/ESO controllers | OpenBao is deployed but not initialized/unsealed |
-| Initialize/unseal | `bash scripts/openbao/bootstrap.sh` | Initialize if needed, unseal, enable KV v2/SSH/Kubernetes/userpass/AppRole, apply baseline policies | Stores root/unseal material under `.runtime-backups/openbao/` |
-| Reconcile policies | `make openbao-policies` | Re-apply registered policies under `policies/openbao/` and explicit Kubernetes auth/entity mappings | Safe after policy changes |
-| Create human users | `OPENBAO_USER=alice OPENBAO_PASSWORD='...' OPENBAO_POLICY=user-default OPENBAO_SSH=true make openbao-create-user` or `OPENBAO_POLICY=user-default,system-admin,user-ssh` | Create/update a userpass user with one or more policies and optional SSH signing role | No default human user is created unless explicitly requested |
+| Deploy platform | `make up` | Create the kind cluster and deploy OpenBao | OpenBao is deployed but not initialized/unsealed |
+| Initialize/unseal | `scripts/homelab openbao bootstrap` | Initialize if needed, unseal, enable KV v2/SSH/Kubernetes/userpass/AppRole, apply baseline policies | Stores root/unseal material under `.runtime-backups/openbao/` |
+| Reconcile policies | `make openbao-policies` | Re-apply the explicit registry under `kubernetes/clusters/homelab/platform/openbao/configuration/policies/` | Safe after policy changes |
+| Create human users | `OPENBAO_USER=alice OPENBAO_PASSWORD='...' OPENBAO_POLICY=user-default OPENBAO_SSH=true make openbao-create-user` | Create/update a userpass user with one or more policies and optional SSH signing role | No default human user is created unless explicitly requested |
 | Create machine access | `make openbao-create-approle ROLE=ci-robot POLICY=ci-deployer` | Create AppRole with response-wrapped single-use SecretID | No default AppRole is created unless explicitly requested |
-| Seed app secret | `bash scripts/openbao/store-rabbitmq.sh` | Store RabbitMQ credentials in OpenBao KV v2 | Source path is `secret/data/messaging/rabbitmq` |
-| Activate ESO sync | `kubectl apply -k infrastructure/external-secrets/stores` | Create ClusterSecretStore/ExternalSecret resources | Run only after OpenBao is initialized, unsealed, and seeded |
-| Verify output | `kubectl get secret rabbitmq-credentials -n messaging` | Confirm Kubernetes Secret was generated by ESO | Restart RabbitMQ if it started before the Secret existed |
 
-Default credential behavior is secure by default: `scripts/openbao/bootstrap.sh` does **not** create a standing default admin user or default `ci-robot` AppRole unless `OPENBAO_CREATE_DEFAULT_ADMIN=true` or `OPENBAO_CREATE_DEFAULT_APPROLE=true` is set for that run.
+Default credential behavior is secure by default: `scripts/homelab openbao bootstrap` does **not** create a standing default admin user or default `ci-robot` AppRole unless `OPENBAO_CREATE_DEFAULT_ADMIN=true` or `OPENBAO_CREATE_DEFAULT_APPROLE=true` is set for that run.
 
 Fresh cluster sequence:
 
@@ -280,57 +264,26 @@ Fresh cluster sequence:
    ```bash
    kubectl wait --for=condition=Ready pod/openbao-0 -n openbao --timeout=300s
    ```
-3. Initialize, unseal, enable KV v2, configure Kubernetes/userpass/AppRole auth, apply OpenBao policies, seed safe KV paths, and create the ESO Kubernetes auth role:
+3. Initialize, unseal, configure auth methods, and apply OpenBao policies:
    ```bash
-   bash scripts/openbao/bootstrap.sh
-   ```
-   The script stores sensitive bootstrap material under `.runtime-backups/openbao/`:
-   - `.runtime-backups/openbao/root-token.txt`
-   - `.runtime-backups/openbao/unseal-key.txt`
-
-   These files are local secrets. Keep them out of Git, preserve `0600` permissions, and back them up securely if you need to keep the lab state.
-
-   Useful OpenBao follow-up commands:
-   ```bash
-   make openbao-status
-   make openbao-policies
-   OPENBAO_USER=alice OPENBAO_PASSWORD='change-me' OPENBAO_POLICY=user-default OPENBAO_SSH=true make openbao-create-user
-   OPENBAO_USER=sagash OPENBAO_PASSWORD='change-me' OPENBAO_POLICY=user-default,system-admin,user-ssh OPENBAO_SSH=true make openbao-create-user
-   make openbao-create-approle ROLE=ci-robot POLICY=ci-deployer
+   scripts/homelab openbao bootstrap
    ```
 
-   `scripts/openbao/bootstrap.sh` does not create standing AppRole credentials by default. Set `OPENBAO_CREATE_DEFAULT_APPROLE=true` only when you intentionally want the default `ci-robot` role. After confirming a non-root admin user can perform required operations, secure or manually revoke the root token according to your recovery model.
+The script stores sensitive bootstrap material under `.runtime-backups/openbao/`. Keep it out of Git, preserve `0600` permissions, and back it up securely if the lab state matters.
 
-4. Store or migrate RabbitMQ credentials into OpenBao KV v2:
-   ```bash
-   bash scripts/openbao/store-rabbitmq.sh
-   ```
-5. Apply the ESO store resources after OpenBao has been bootstrapped:
-   ```bash
-   kubectl apply -k infrastructure/external-secrets/stores
-   ```
-   These resources are intentionally excluded from the default `infrastructure/external-secrets/` phase because they depend on manual OpenBao bootstrap.
-6. Verify the OpenBao-backed sync:
-   ```bash
-   kubectl get clustersecretstore openbao
-   kubectl get externalsecret rabbitmq-credentials -n messaging
-   kubectl get secret rabbitmq-credentials -n messaging
-   ```
-7. If RabbitMQ started before the secret existed, restart it after the secret syncs:
-   ```bash
-   kubectl rollout restart deployment/rabbitmq -n messaging
-   kubectl rollout status deployment/rabbitmq -n messaging --timeout=180s
-   ```
+Useful follow-up commands:
+```bash
+make openbao-status
+make openbao-policies
+OPENBAO_USER=alice OPENBAO_PASSWORD='change-me' OPENBAO_POLICY=user-default OPENBAO_SSH=true make openbao-create-user
+make openbao-create-approle ROLE=ci-robot POLICY=ci-deployer
+```
 
 ### Troubleshooting First Run
 
-- `ClusterSecretStore/openbao` is not ready: confirm OpenBao is unsealed and `scripts/openbao/bootstrap.sh` completed successfully.
-- ESO authentication fails: verify the bootstrap script configured `kubernetes_host=https://kubernetes.default.svc:443` and passed the Kubernetes service account CA as PEM.
-- File audit logging is skipped: add or verify a writable `/vault/audit` path in the OpenBao pod, then re-run `scripts/openbao/bootstrap.sh`.
-- Userpass or AppRole auth is missing: re-run `scripts/openbao/bootstrap.sh`; auth backend enablement is idempotent.
-- OpenBao pod is crash-looping with `server gave HTTP response to HTTPS client`: confirm `infrastructure/openbao/values.yaml` uses `scheme: HTTP` for readiness/liveness probes and `tlsDisable: true`.
-- `rabbitmq-credentials` is missing: confirm `scripts/openbao/store-rabbitmq.sh` stored `secret/data/messaging/rabbitmq`, then reconcile the ESO store resources.
-- RabbitMQ is pending or crash-looping: create/sync `messaging/rabbitmq-credentials`, then restart the RabbitMQ deployment.
+- File audit logging is skipped: add or verify a writable `/vault/audit` path in the OpenBao pod, then rerun `scripts/homelab openbao bootstrap`.
+- Userpass or AppRole auth is missing: rerun `scripts/homelab openbao bootstrap`; auth backend enablement is idempotent.
+- OpenBao pod is crash-looping with `server gave HTTP response to HTTPS client`: confirm `kubernetes/clusters/homelab/platform/openbao/release/values.yaml` uses `scheme: HTTP` for probes and `tlsDisable: true`.
 
 ### Internal Access
 Applications in the cluster can reach OpenBao at:
@@ -361,14 +314,14 @@ Primary path: set `TAILSCALE_CLIENT_ID` and `TAILSCALE_CLIENT_SECRET` in `config
 make up
 ```
 
-When credentials are present, `scripts/cluster/setup.sh` creates the Tailscale namespace and OAuth Secret, installs the operator, annotates OpenBao, configures Tailscale Serve on proxy pods, and deploys the Serve watcher.
+When credentials are present, `scripts/homelab cluster up` creates the Tailscale namespace and OAuth Secret, installs the operator, annotates OpenBao, configures Tailscale Serve on proxy pods, and deploys the Serve watcher.
 
 Manual fallback/recovery path:
 
 ```bash
 make tailscale
-./scripts/tailscale/configure-serve.sh
-./scripts/tailscale/check-access.sh
+scripts/homelab tailscale configure-serve
+scripts/homelab tailscale check
 ```
 
 Use the manual path when you intentionally skipped Tailscale during `make up`, are repairing Serve configuration, or are recovering after a cluster rebuild. See `tailscale/README.md` for OAuth, Tailnet Lock, proxy signing, and identity recovery details.
@@ -378,7 +331,6 @@ Once the operator is running, access admin UIs directly from any device on your 
    | Service | Tailnet URL |
    |---------|-------------|
    | Headlamp | `https://headlamp-headlamp.<tailnet>.ts.net` |
-   | RabbitMQ | `https://messaging-rabbitmq.<tailnet>.ts.net` |
    | OpenBao  | `https://openbao-openbao.<tailnet>.ts.net/ui/` |
 
 3. No port-forwarding, SSH tunnels, or public IPs required.
@@ -397,28 +349,28 @@ If a full cluster rebuild is required, use the ordered recovery target. It valid
 
 ```bash
 BACKUP_DIR=.runtime-backups/tailscale/<timestamp> make recover
-./scripts/tailscale/check-access.sh
+scripts/homelab tailscale check
 ```
 
 If Tailscale devices were deleted manually in the Tailscale Admin Console, reset the stale Kubernetes identities and let the proxies register fresh:
 
 ```bash
-./scripts/tailscale/reset-proxies.sh
-./scripts/tailscale/sign-proxies.sh
-./scripts/tailscale/configure-serve.sh
-./scripts/tailscale/check-access.sh
+scripts/homelab tailscale reset
+scripts/homelab tailscale sign
+scripts/homelab tailscale configure-serve
+scripts/homelab tailscale check
 ```
 
 Tailnet Lock is enabled in this environment. Any newly registered Kubernetes proxy node must be signed before DNS/connectivity is fully available:
 
 ```bash
-./scripts/tailscale/sign-proxies.sh
+scripts/homelab tailscale sign
 ```
 
 For a VPS reboot, the cluster should recover as long as the container runtime, kind node, and host Tailscale daemon restart normally. Re-run Serve configuration and access checks after proxy restarts:
 
 ```bash
-./scripts/tailscale/check-access.sh
+scripts/homelab tailscale check
 ```
 
 For a full VPS rebuild/recreate, also preserve the host Tailscale identity from `/var/lib/tailscale` before deleting the VPS. Otherwise the VPS itself becomes a new Tailscale device.
@@ -439,7 +391,7 @@ This uses the same operator; no new infrastructure is needed.
 ## Tear Down
 To destroy the local infrastructure and free up resources, run the destroy script:
 ```bash
-./scripts/cluster/destroy.sh
+scripts/homelab cluster down
 ```
 
 ## Security Scanning Strategy
@@ -459,7 +411,7 @@ The project uses a **dual-scan approach** to balance early feedback with authori
 
 ### Running Scans Locally
 ```bash
-bash scripts/security/scan.sh
+scripts/homelab security scan
 ```
 
 This script generates:
@@ -476,7 +428,7 @@ All report artifacts are excluded from Git via `.gitignore`.
 ### Scanner Versions
 All scanner images are pinned to specific versions for reproducible results. Override via environment variables if needed:
 ```bash
-TRIVY_IMAGE=ghcr.io/aquasecurity/trivy:0.70.0 bash scripts/security/scan.sh
+TRIVY_IMAGE=ghcr.io/aquasecurity/trivy:0.70.0 scripts/homelab security scan
 ```
 
 ### Known False Positives

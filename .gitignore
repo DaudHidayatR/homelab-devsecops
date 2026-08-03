@@ -15,13 +15,12 @@ semgrep-report.*
 checkov-report.*
 sbom-*.json
 .rendered-manifests.yaml
-wiki/*
 raw/*
 plans/*
 docs/openbao-integration.md
-apps/rabbitmq/core/secret.yaml
 .commandcode
 
 # Runtime backups and OpenBao init output may contain root tokens, unseal keys, Tailscale machine keys, and OAuth secrets
 .runtime-backups/
 openbao-init.json
+.runtime/

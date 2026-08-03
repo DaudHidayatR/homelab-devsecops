@@ -1,6 +1,5 @@
 # Exclude non-deployable directories from Semgrep scanning
 # These contain documentation, planning files, and helper scripts — not infrastructure code
-wiki/
 raw/
 plans/
 docs/
