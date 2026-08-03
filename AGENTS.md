@@ -17,4 +17,4 @@
 
 ## Knowledge sources
 - `raw/` is immutable source material; never modify it.
-- `wiki/` is maintained knowledge. Keep `wiki/index.md` as the catalog, `wiki/log.md` append-only, and claims traceable to source files.
+- Compiled knowledge belongs in `document-project/web-documentasi/devsecops-homelab/template-wiki`; operational truth remains in this repository’s READMEs, manifests, scripts, and workflows. Keep claims traceable through the destination vault’s `Raw/Sources/` layer.

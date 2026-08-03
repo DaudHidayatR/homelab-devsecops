@@ -21,9 +21,5 @@ spec:
       namespace: demo
     - apiVersion: apps/v1
       kind: Deployment
-      name: rabbitmq
-      namespace: messaging
-    - apiVersion: apps/v1
-      kind: Deployment
       name: headlamp
       namespace: kube-system

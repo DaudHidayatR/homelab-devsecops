@@ -27,13 +27,6 @@ spec:
   - from:
     - namespaceSelector:
         matchLabels:
-          kubernetes.io/metadata.name: external-secrets
-    ports:
-    - protocol: TCP
-      port: 8200
-  - from:
-    - namespaceSelector:
-        matchLabels:
           kubernetes.io/metadata.name: openbao
     ports:
     - protocol: TCP

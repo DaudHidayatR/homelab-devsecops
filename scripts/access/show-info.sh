@@ -17,7 +17,6 @@ Check pod status with: kubectl get pods -n ${DEMO_NAMESPACE}
 If TAILSCALE_CLIENT_ID and TAILSCALE_CLIENT_SECRET are set in config.env,
 admin UIs are automatically available on your tailnet:
    Headlamp:  https://headlamp-kube-system.<tailnet>.ts.net
-   RabbitMQ:  https://rabbitmq-messaging.<tailnet>.ts.net
    OpenBao:   https://openbao-openbao.<tailnet>.ts.net
 
 If Tailscale credentials are not configured, use legacy port-forward access below.
@@ -28,10 +27,6 @@ To access Headlamp Web UI:
 2. Get your login token: kubectl create token headlamp-admin -n kube-system
 3. Open http://localhost:8080 in your browser
 
-To access RabbitMQ Management UI:
-1. Run: kubectl port-forward -n messaging svc/rabbitmq 15672:15672
-2. Open http://localhost:15672
-3. Get the password: kubectl get secret rabbitmq-credentials -n messaging -o jsonpath='{.data.RABBITMQ_DEFAULT_PASS}' | base64 -d
 
 To bootstrap OpenBao (single-node raft):
 1. Run: kubectl port-forward -n openbao svc/openbao 8200:8200

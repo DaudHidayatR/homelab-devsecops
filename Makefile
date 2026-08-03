@@ -60,16 +60,12 @@ validate-kustomize:
 	kubectl kustomize apps >/dev/null && echo "  ✓ apps valid"
 	@echo "Validating apps/demo overlay..."
 	kubectl kustomize apps/demo >/dev/null && echo "  ✓ apps/demo valid"
-	@echo "Validating apps/rabbitmq overlay..."
-	kubectl kustomize apps/rabbitmq >/dev/null && echo "  ✓ apps/rabbitmq valid"
 	@echo "Validating apps/headlamp overlay..."
 	kubectl kustomize apps/headlamp >/dev/null && echo "  ✓ apps/headlamp valid"
 	@echo "Validating infrastructure overlay..."
 	kubectl kustomize infrastructure >/dev/null && echo "  ✓ infrastructure valid"
 	@echo "Validating infrastructure/openbao overlay..."
 	kubectl kustomize infrastructure/openbao >/dev/null && echo "  ✓ infrastructure/openbao valid"
-	@echo "Validating infrastructure/external-secrets overlay..."
-	kubectl kustomize infrastructure/external-secrets >/dev/null && echo "  ✓ infrastructure/external-secrets valid"
 
 sync:
 	@command -v flux >/dev/null 2>&1 || { echo "Flux CLI is required for sync" >&2; exit 1; }

@@ -39,7 +39,6 @@ elif [[ -n "${TAILSCALE_TAILNET_DOMAIN:-}" ]]; then
   HOSTS=(
     "openbao-openbao.${TAILSCALE_TAILNET_DOMAIN}:/ui/"
     "kube-system-headlamp.${TAILSCALE_TAILNET_DOMAIN}:/"
-    "messaging-rabbitmq.${TAILSCALE_TAILNET_DOMAIN}:/"
   )
 else
   common::die "No Tailscale hosts configured. Set TAILSCALE_TAILNET_DOMAIN or TAILSCALE_ACCESS_HOSTS in config.env, or pass host[:path] arguments."

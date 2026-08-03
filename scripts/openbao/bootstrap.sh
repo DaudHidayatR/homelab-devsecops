@@ -296,7 +296,4 @@ echo "    - Create admin user: OPENBAO_CREATE_DEFAULT_ADMIN=true bash scripts/op
 echo "    - Create AppRole:    bash scripts/openbao/create-approle.sh ci-robot ci-deployer"
 echo "    - After verifying a non-root admin login, secure or revoke the root token manually."
 echo ""
-echo "  Next steps:"
-echo "    1. Run: bash scripts/openbao/store-rabbitmq.sh"
-echo "    2. Reconcile ExternalSecret resources: kubectl apply -k infrastructure/external-secrets/stores"
-echo "    3. Verify: kubectl get externalsecret -A"
+echo "  Next step: verify OpenBao access with: make openbao-status"

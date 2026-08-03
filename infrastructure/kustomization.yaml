@@ -5,4 +5,3 @@ resources:
   - namespaces/
   - openbao/
   - istio/
-  - external-secrets/

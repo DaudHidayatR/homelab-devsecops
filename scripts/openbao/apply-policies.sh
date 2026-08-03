@@ -42,7 +42,6 @@ POLICY_FILES=(
   "app-default|app/app-default.hcl"
   "app-demo|app/app-demo.hcl"
   "app-tailscale-operator|app/app-tailscale-operator.hcl"
-  "k8s-eso-reader|kubernetes/k8s-eso-reader.hcl"
   "ci-deployer|ci/ci-deployer.hcl"
 )
 
@@ -53,7 +52,6 @@ POLICY_FILES=(
 # CI/CD uses optional GitHub OIDC JWT auth for ci-deployer; the Kubernetes role is
 # retained here for clusters that also run an in-cluster ci-deployer service account.
 POLICY_MAPPINGS=(
-  "k8s-eso-reader|external-secrets|external-secrets|true|true"
   "app-demo|demo|default|true|true"
   "app-tailscale-operator|tailscale|operator|true|true"
   "ci-deployer|flux-system|ci-deployer|true|true"

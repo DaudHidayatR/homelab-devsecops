@@ -1,6 +1,6 @@
 # Minimal Rootless Kubernetes & Istio Lab
 
-A minimal, rootless local development environment using `kind`, Istio, and RabbitMQ. Designed for learning service mesh basics and asynchronous messaging without heavy resource overhead.
+A minimal, rootless local development environment using `kind` and Istio. Designed for learning service mesh basics without heavy resource overhead.
 
 ## Prerequisites
 - Linux OS
@@ -14,11 +14,10 @@ A minimal, rootless local development environment using `kind`, Istio, and Rabbi
 ## Project Structure
 The configuration is modularized into logical directories:
 - `clusters/kind/`: Flux CD GitOps entry point — `Kustomization` CRDs that reconcile `infrastructure/` and `apps/`.
-- `infrastructure/`: Foundational cluster resources — namespaces (demo, messaging, openbao, istio-system), OpenBao (HelmRelease, NetworkPolicies), and Istio (HelmRelease + mTLS).
+- `infrastructure/`: Foundational cluster resources — namespaces, OpenBao (HelmRelease and NetworkPolicies), and Istio (HelmRelease + mTLS).
 - `kind/`: Cluster bootstrapping configurations.
 - `patches/`: Strategic merge patches applied to resources (e.g., Pod Security Standards labels on Namespaces).
-- `apps/`: Flux-managed application overlays. Aggregates `apps/demo/`, `apps/rabbitmq/`, and `apps/headlamp/` through `apps/kustomization.yaml`.
-- `apps/rabbitmq/`: RabbitMQ message broker manifests in a dedicated namespace (kept outside the mesh).
+- `apps/`: Flux-managed application overlays. Aggregates `apps/demo/` and `apps/headlamp/` through `apps/kustomization.yaml`.
 - `apps/headlamp/`: Kubernetes Web UI manifests for visual management.
 - `config.env`: Centralized constants (cluster name, namespaces, image versions) shared by scripts and manifests.
 
@@ -94,7 +93,6 @@ All component image versions are defined directly in their respective manifests.
 | Component | Image Source | Controlled In |
 |-----------|-------------|---------------|
 | Headlamp | `config.env: HEADLAMP_IMAGE` / `HEADLAMP_VERSION` | `apps/headlamp/headlamp.yaml` (Deployment image) |
-| RabbitMQ | `config.env: RABBITMQ_IMAGE` | `apps/rabbitmq/core/deployment.yaml` (Deployment image) |
 | Sample App | `config.env: SAMPLE_APP_IMAGE` | `apps/demo/sample-app/deployment.yaml` (Deployment image) |
 
 To upgrade a component, update both `config.env` and the image field in the corresponding manifest. Version pinning ensures reproducible deployments across environments.
@@ -129,7 +127,7 @@ This project uses [Flux CD](https://fluxcd.io) to automatically reconcile cluste
 | Flux Resource | Purpose |
 |-------------|---------|
 | `clusters/kind/infrastructure.yaml` | Reconciles namespaces and the OpenBao HelmRelease layer |
-| `clusters/kind/apps.yaml` | Reconciles the buildable `apps/` aggregate: demo app, RabbitMQ, and Headlamp |
+| `clusters/kind/apps.yaml` | Reconciles the buildable `apps/` aggregate: demo app and Headlamp |
 | `infrastructure/openbao/helmrepository.yaml` | Indexes the OpenBao Helm chart repository |
 | `infrastructure/openbao/helmrelease.yaml` | Declaratively installs/upgrades OpenBao |
 
@@ -202,11 +200,11 @@ production:
 
 ### One-Time Setup
 
-- **[VPS Tailscale Setup](wiki/docs/vps-tailscale-setup.md)** — Install Tailscale on the VPS host,
+- **[VPS Tailscale Setup](../../../document-project/web-documentasi/devsecops-homelab/template-wiki/Wiki/Concepts/network-and-trust-boundaries.md)** — Install Tailscale on the VPS host,
   get its Tailscale IP, and verify connectivity.
-- **[CI Deploy Secrets](wiki/docs/ci-deploy-secrets.md)** — Create the Tailscale OAuth client for CI,
+- **[CI Deploy Secrets](../../../document-project/web-documentasi/devsecops-homelab/template-wiki/Wiki/Concepts/secrets-lifecycle.md)** — Create the Tailscale OAuth client for CI,
   encode the kubeconfig, and configure GitHub Environment secrets.
-- **[Tailscale VPS Strategy](wiki/concepts/tailscale-vps-strategy.md)** — Full reference including
+- **[Tailscale VPS Strategy](../../../document-project/web-documentasi/devsecops-homelab/template-wiki/Wiki/Entities/tailscale.md)** — Full reference including
   security model, TLS cert handling, and troubleshooting.
 
 ### Manual Trigger
@@ -229,44 +227,22 @@ This setup includes Headlamp to manage your cluster visually.
    ```
 3. Open [http://localhost:8080](http://localhost:8080) in your browser and paste the token to log in.
 
-## Accessing RabbitMQ
-RabbitMQ is deployed to the `messaging` namespace.
-
-1. Port-forward the RabbitMQ Management UI:
-   ```bash
-   kubectl port-forward -n messaging svc/rabbitmq 15672:15672
-   ```
-2. Open [http://localhost:15672](http://localhost:15672) in your browser.
-3. Log in with credentials retrieved from the cluster secret:
-   ```bash
-   kubectl get secret rabbitmq-credentials -n messaging -o jsonpath='{.data.RABBITMQ_DEFAULT_PASS}' | base64 -d
-   ```
-
-### Inter-Service Communication
-Your microservices can connect to RabbitMQ using the internal cluster DNS. Retrieve the password from the Kubernetes secret or OpenBao:
-```
-RABBITMQ_URL=amqp://admin:<password>@rabbitmq.messaging.svc.cluster.local:5672
-```
-
 ## Accessing OpenBao (Secret Management)
 OpenBao is deployed to the `openbao` namespace via the official Helm chart using **single-node raft** storage. The lab listener serves HTTP inside the cluster, while Tailscale Serve provides external HTTPS access.
 
 ### First-Run OpenBao Bootstrap
 
-OpenBao initialization and unseal are intentionally manual. This keeps root tokens and unseal keys out of Git while still letting Flux manage the chart and External Secrets Operator controller.
+OpenBao initialization and unseal are intentionally manual. This keeps root tokens and unseal keys out of Git while Flux manages the chart.
 
 ### OpenBao operational lifecycle
 
 | Step | Command/resource | Purpose | Notes |
 |---|---|---|---|
-| Deploy platform | `make up` | Create kind cluster and deploy OpenBao/ESO controllers | OpenBao is deployed but not initialized/unsealed |
+| Deploy platform | `make up` | Create the kind cluster and deploy OpenBao | OpenBao is deployed but not initialized/unsealed |
 | Initialize/unseal | `bash scripts/openbao/bootstrap.sh` | Initialize if needed, unseal, enable KV v2/SSH/Kubernetes/userpass/AppRole, apply baseline policies | Stores root/unseal material under `.runtime-backups/openbao/` |
 | Reconcile policies | `make openbao-policies` | Re-apply registered policies under `policies/openbao/` and explicit Kubernetes auth/entity mappings | Safe after policy changes |
-| Create human users | `OPENBAO_USER=alice OPENBAO_PASSWORD='...' OPENBAO_POLICY=user-default OPENBAO_SSH=true make openbao-create-user` or `OPENBAO_POLICY=user-default,system-admin,user-ssh` | Create/update a userpass user with one or more policies and optional SSH signing role | No default human user is created unless explicitly requested |
+| Create human users | `OPENBAO_USER=alice OPENBAO_PASSWORD='...' OPENBAO_POLICY=user-default OPENBAO_SSH=true make openbao-create-user` | Create/update a userpass user with one or more policies and optional SSH signing role | No default human user is created unless explicitly requested |
 | Create machine access | `make openbao-create-approle ROLE=ci-robot POLICY=ci-deployer` | Create AppRole with response-wrapped single-use SecretID | No default AppRole is created unless explicitly requested |
-| Seed app secret | `bash scripts/openbao/store-rabbitmq.sh` | Store RabbitMQ credentials in OpenBao KV v2 | Source path is `secret/data/messaging/rabbitmq` |
-| Activate ESO sync | `kubectl apply -k infrastructure/external-secrets/stores` | Create ClusterSecretStore/ExternalSecret resources | Run only after OpenBao is initialized, unsealed, and seeded |
-| Verify output | `kubectl get secret rabbitmq-credentials -n messaging` | Confirm Kubernetes Secret was generated by ESO | Restart RabbitMQ if it started before the Secret existed |
 
 Default credential behavior is secure by default: `scripts/openbao/bootstrap.sh` does **not** create a standing default admin user or default `ci-robot` AppRole unless `OPENBAO_CREATE_DEFAULT_ADMIN=true` or `OPENBAO_CREATE_DEFAULT_APPROLE=true` is set for that run.
 
@@ -280,57 +256,26 @@ Fresh cluster sequence:
    ```bash
    kubectl wait --for=condition=Ready pod/openbao-0 -n openbao --timeout=300s
    ```
-3. Initialize, unseal, enable KV v2, configure Kubernetes/userpass/AppRole auth, apply OpenBao policies, seed safe KV paths, and create the ESO Kubernetes auth role:
+3. Initialize, unseal, configure auth methods, and apply OpenBao policies:
    ```bash
    bash scripts/openbao/bootstrap.sh
    ```
-   The script stores sensitive bootstrap material under `.runtime-backups/openbao/`:
-   - `.runtime-backups/openbao/root-token.txt`
-   - `.runtime-backups/openbao/unseal-key.txt`
 
-   These files are local secrets. Keep them out of Git, preserve `0600` permissions, and back them up securely if you need to keep the lab state.
+The script stores sensitive bootstrap material under `.runtime-backups/openbao/`. Keep it out of Git, preserve `0600` permissions, and back it up securely if the lab state matters.
 
-   Useful OpenBao follow-up commands:
-   ```bash
-   make openbao-status
-   make openbao-policies
-   OPENBAO_USER=alice OPENBAO_PASSWORD='change-me' OPENBAO_POLICY=user-default OPENBAO_SSH=true make openbao-create-user
-   OPENBAO_USER=sagash OPENBAO_PASSWORD='change-me' OPENBAO_POLICY=user-default,system-admin,user-ssh OPENBAO_SSH=true make openbao-create-user
-   make openbao-create-approle ROLE=ci-robot POLICY=ci-deployer
-   ```
-
-   `scripts/openbao/bootstrap.sh` does not create standing AppRole credentials by default. Set `OPENBAO_CREATE_DEFAULT_APPROLE=true` only when you intentionally want the default `ci-robot` role. After confirming a non-root admin user can perform required operations, secure or manually revoke the root token according to your recovery model.
-
-4. Store or migrate RabbitMQ credentials into OpenBao KV v2:
-   ```bash
-   bash scripts/openbao/store-rabbitmq.sh
-   ```
-5. Apply the ESO store resources after OpenBao has been bootstrapped:
-   ```bash
-   kubectl apply -k infrastructure/external-secrets/stores
-   ```
-   These resources are intentionally excluded from the default `infrastructure/external-secrets/` phase because they depend on manual OpenBao bootstrap.
-6. Verify the OpenBao-backed sync:
-   ```bash
-   kubectl get clustersecretstore openbao
-   kubectl get externalsecret rabbitmq-credentials -n messaging
-   kubectl get secret rabbitmq-credentials -n messaging
-   ```
-7. If RabbitMQ started before the secret existed, restart it after the secret syncs:
-   ```bash
-   kubectl rollout restart deployment/rabbitmq -n messaging
-   kubectl rollout status deployment/rabbitmq -n messaging --timeout=180s
-   ```
+Useful follow-up commands:
+```bash
+make openbao-status
+make openbao-policies
+OPENBAO_USER=alice OPENBAO_PASSWORD='change-me' OPENBAO_POLICY=user-default OPENBAO_SSH=true make openbao-create-user
+make openbao-create-approle ROLE=ci-robot POLICY=ci-deployer
+```
 
 ### Troubleshooting First Run
 
-- `ClusterSecretStore/openbao` is not ready: confirm OpenBao is unsealed and `scripts/openbao/bootstrap.sh` completed successfully.
-- ESO authentication fails: verify the bootstrap script configured `kubernetes_host=https://kubernetes.default.svc:443` and passed the Kubernetes service account CA as PEM.
 - File audit logging is skipped: add or verify a writable `/vault/audit` path in the OpenBao pod, then re-run `scripts/openbao/bootstrap.sh`.
 - Userpass or AppRole auth is missing: re-run `scripts/openbao/bootstrap.sh`; auth backend enablement is idempotent.
 - OpenBao pod is crash-looping with `server gave HTTP response to HTTPS client`: confirm `infrastructure/openbao/values.yaml` uses `scheme: HTTP` for readiness/liveness probes and `tlsDisable: true`.
-- `rabbitmq-credentials` is missing: confirm `scripts/openbao/store-rabbitmq.sh` stored `secret/data/messaging/rabbitmq`, then reconcile the ESO store resources.
-- RabbitMQ is pending or crash-looping: create/sync `messaging/rabbitmq-credentials`, then restart the RabbitMQ deployment.
 
 ### Internal Access
 Applications in the cluster can reach OpenBao at:
@@ -378,7 +323,6 @@ Once the operator is running, access admin UIs directly from any device on your 
    | Service | Tailnet URL |
    |---------|-------------|
    | Headlamp | `https://headlamp-headlamp.<tailnet>.ts.net` |
-   | RabbitMQ | `https://messaging-rabbitmq.<tailnet>.ts.net` |
    | OpenBao  | `https://openbao-openbao.<tailnet>.ts.net/ui/` |
 
 3. No port-forwarding, SSH tunnels, or public IPs required.
