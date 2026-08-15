@@ -27,16 +27,12 @@ All desired cluster state lives below `kubernetes/`:
 - `config.env`: local script configuration.
 
 ## Usage
-1. Make the scripts executable:
-   ```bash
-   chmod +x setup.sh destroy.sh
-   ```
-2. Customize `config.env` if you want to change cluster names, namespaces, or image versions.
-3. Deploy the lab with Make:
+1. Customize `config.env` if you want to change cluster names, namespaces, or image versions.
+2. Deploy the lab with Make:
    ```bash
    make up
    ```
-   Or run the setup script directly:
+   Or invoke the lifecycle command directly:
    ```bash
    ./scripts/homelab cluster up
    ```
@@ -389,7 +385,7 @@ tailscale.com/funnel: "true"
 This uses the same operator; no new infrastructure is needed.
 
 ## Tear Down
-To destroy the local infrastructure and free up resources, run the destroy script:
+To destroy the local infrastructure and free up resources, use the lifecycle command:
 ```bash
 scripts/homelab cluster down
 ```
