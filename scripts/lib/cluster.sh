@@ -28,23 +28,23 @@ cluster::exists() {
 cluster::render_config() {
   local __var_name="$1"
   local source_config="$2"
-  local rendered_config
-  common::mktemp_var rendered_config /tmp/kind-cluster.XXXXXX.yaml
-  cp "${source_config}" "${rendered_config}"
+  local rendered_path
+  common::mktemp_var rendered_path /tmp/kind-cluster.XXXXXX.yaml
+  cp "${source_config}" "${rendered_path}"
 
   if [[ -n "${TAILSCALE_VPS_IP:-}" ]]; then
-    sed -i "s/TAILSCALE_VPS_IP_PLACEHOLDER/${TAILSCALE_VPS_IP}/g" "${rendered_config}"
+    sed -i "s/TAILSCALE_VPS_IP_PLACEHOLDER/${TAILSCALE_VPS_IP}/g" "${rendered_path}"
   else
-    sed -i '/TAILSCALE_VPS_IP_PLACEHOLDER/d' "${rendered_config}"
+    sed -i '/TAILSCALE_VPS_IP_PLACEHOLDER/d' "${rendered_path}"
   fi
 
   if [[ -n "${TAILSCALE_VPS_HOSTNAME:-}" ]]; then
-    sed -i "s/TAILSCALE_VPS_HOSTNAME_PLACEHOLDER/${TAILSCALE_VPS_HOSTNAME}/g" "${rendered_config}"
+    sed -i "s/TAILSCALE_VPS_HOSTNAME_PLACEHOLDER/${TAILSCALE_VPS_HOSTNAME}/g" "${rendered_path}"
   else
-    sed -i '/TAILSCALE_VPS_HOSTNAME_PLACEHOLDER/d' "${rendered_config}"
+    sed -i '/TAILSCALE_VPS_HOSTNAME_PLACEHOLDER/d' "${rendered_path}"
   fi
 
-  printf -v "${__var_name}" '%s' "${rendered_config}"
+  printf -v "${__var_name}" '%s' "${rendered_path}"
 }
 
 cluster::ensure_kind() {
