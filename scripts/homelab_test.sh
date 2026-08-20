@@ -39,6 +39,20 @@ main() {
   cluster::ensure_kind "${source_config}"
   [[ "${KIND_CONFIG}" != "${source_config}" ]]
   cmp -s "${source_config}" "${KIND_CONFIG}"
+
+  python3 - "${root}/scripts/commands/cluster.sh" <<'PY'
+import re
+import sys
+
+source = open(sys.argv[1]).read()
+wait = re.search(r'kubectl wait --for=condition=Ready \\\n((?:\s+kustomization/[^\n]+\\\n)+)\s+-n flux-system --timeout=300s', source)
+assert wait
+assert re.findall(r'kustomization/([\w-]+)', wait.group(1)) == [
+    'bootstrap', 'cluster-resources', 'platform', 'openbao-config',
+    'cluster-policies', 'operations', 'apps',
+]
+assert source.index(wait.group(0)) < source.index('setup::print_summary', source.index('main()'))
+PY
 }
 
 main "$@"
