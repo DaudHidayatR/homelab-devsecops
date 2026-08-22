@@ -14,6 +14,11 @@ on:
       - "kustomization.*"
       - "Dockerfile*"
       - ".github/workflows/**"
+      - "**.hcl"
+      - "**.rego"
+      - "Makefile"
+      - "**/Makefile"
+      - "config.env.example"
   pull_request:
     branches: [main]
     paths:
@@ -25,6 +30,11 @@ on:
       - "kustomization.*"
       - "Dockerfile*"
       - ".github/workflows/**"
+      - "**.hcl"
+      - "**.rego"
+      - "Makefile"
+      - "**/Makefile"
+      - "config.env.example"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
