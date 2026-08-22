@@ -28,6 +28,9 @@ case "${1:-}" in
   image) shift; scan_image "$@" ;;
   validate) validate_reports ;;
   "")
+    # Initialize before any conditional assignment so the aggregate exit
+    # status is always bound under set -u, including the all-clean path.
+    SCAN_STATUS=0
     scan_trivy || SCAN_STATUS=1
     scan_kustomize || SCAN_STATUS=1
     scan_grype || SCAN_STATUS=1
