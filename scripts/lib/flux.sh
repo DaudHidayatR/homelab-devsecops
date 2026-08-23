@@ -48,8 +48,16 @@ flux::bootstrap_or_apply() {
 
   if [[ -n "${FLUX_GIT_TAG:-}" ]]; then
     log::info "Switching Flux to semver-based deployment (range=${FLUX_GIT_TAG})."
-    kubectl patch gitrepository flux-system -n flux-system \
-      --type merge -p "{\"spec\":{\"ref\":{\"semver\":\"${FLUX_GIT_TAG}\"},\"interval\":\"1m\"}}"
+    # Replace the branch-tracked GitRepository with an explicit semver ref in
+    # one atomic operation. Recreate (not patch) so the ref and interval are
+    # set together; fail loudly if the switch does not apply.
+    kubectl delete gitrepository flux-system -n flux-system --ignore-not-found
+    flux create source git flux-system \
+      --url="https://github.com/${GITHUB_USER}/${FLUX_GITHUB_REPOSITORY}" \
+      --branch="${FLUX_GITHUB_BRANCH}" \
+      --tag-semver="${FLUX_GIT_TAG}" \
+      --interval=1m \
+      --namespace=flux-system
     log::success "Flux now watches semver tags (${FLUX_GIT_TAG}) instead of branch '${FLUX_GITHUB_BRANCH}'."
     printf -v "${semver_var_name}" '%s' "enabled (${FLUX_GIT_TAG})"
     log::info "Push a semver tag to deploy: make tag v=0.0.1"
