@@ -39,6 +39,20 @@ main() {
   cluster::ensure_kind "${source_config}"
   [[ "${KIND_CONFIG}" != "${source_config}" ]]
   cmp -s "${source_config}" "${KIND_CONFIG}"
+
+  # SCAN_STATUS regression: the aggregate security-scan path must always
+  # have SCAN_STATUS initialized under set -u (clean aggregation exits 0).
+  # Scanner invocations are stripped so no container runtime is needed.
+  local sec_src sec_shim agg_out agg_rc
+  sec_src="${root}/scripts/commands/security.sh"
+  sec_shim="$(mktemp "${root}/scripts/commands/.shim.XXXXXX")"
+  sed -e '/^source "/d' -e '/^    scan_/d' -e '/^    validate_reports /d' \
+    "${sec_src}" >"${sec_shim}"
+  agg_out="$(cd / && bash "${sec_shim}" scan 2>&1)"
+  agg_rc=$?
+  rm -f "${sec_shim}"
+  [[ "${agg_rc}" -eq 0 ]]
+  [[ "${agg_out}" != *"unbound variable"* ]]
 }
 
 main "$@"
