@@ -99,6 +99,41 @@ assert re.findall(r'kustomization/([\w-]+)', wait.group(1)) == [
 ]
 assert source.index(wait.group(0)) < source.index('setup::print_summary', source.index('main()'))
 PY
+
+  # P1: kind cluster config must not bind broadly and must carry loopback SANs
+  # so the generated kubeconfig works without manual edits or TLS errors.
+  local kind_config
+  kind_config="${root}/kubernetes/clusters/homelab/bootstrap/controllers/kind-cluster.yaml"
+  if grep -q 'advertiseAddress: *0\\.0\\.0\\.0\\|bindAddress: *0\\.0\\.0\\.0\\|advertiseAddress: *\\[::\\]\\|bindAddress: *\\[::\\]' "${kind_config}"; then
+    echo "ERROR: kind config binds the API server broadly" >&2
+    return 1
+  fi
+  grep -q '127.0.0.1' "${kind_config}" || { echo "ERROR: kind config lacks loopback SAN" >&2; return 1; }
+  grep -q 'localhost' "${kind_config}" || { echo "ERROR: kind config lacks localhost SAN" >&2; return 1; }
+  # Placeholder tokens must be renderable by cluster::render_config
+  grep -q 'TAILSCALE_VPS_IP_PLACEHOLDER' "${kind_config}"
+
+  # P1: destructive kind lifecycle operations must be bound to CLUSTER_NAME
+  # shellcheck disable=SC2016 # literal pattern; $CLUSTER_NAME must stay unexpanded
+  if grep -n 'kind delete cluster' "${root}/scripts/commands/cluster.sh" | grep -v -- '--name "$CLUSTER_NAME"' >/dev/null; then
+    echo "ERROR: kind delete not bound to CLUSTER_NAME" >&2
+    return 1
+  fi
+
+  # P1: the Flux semver switch must be atomic (recreate with flux create,
+  # not a bare kubectl patch that can leave a half-applied ref)
+  python3 - "${root}/scripts/lib/flux.sh" <<'PY'
+import sys
+
+source = open(sys.argv[1]).read()
+if 'FLUX_GIT_TAG' in source:
+    assert 'kubectl patch gitrepository' not in source, \
+        'Flux semver switch must not use a bare kubectl patch'
+    assert 'flux create source git flux-system' in source, \
+        'Flux semver switch must recreate the source atomically'
+    assert '--tag-semver=' in source, \
+        'Flux semver switch must set tag-semver'
+PY
 }
 
 main "$@"
