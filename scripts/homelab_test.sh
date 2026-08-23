@@ -195,6 +195,26 @@ for needle in (
 assert '/vault/data' not in text, \
     'README must not reference the retired /vault/data Raft path'
 PY
+
+  # P1: the CI deploy job must not persist a GitHub token for the public
+  # flux-system source. The GitRepository is fetched unauthenticated over
+  # HTTPS, so no GITHUB_TOKEN is written into a flux-system secret and no
+  # secretRef is attached to the source.
+  python3 - "${root}/.github/workflows/IaC.yml" <<'PY'
+import re
+import sys
+
+text = open(sys.argv[1]).read()
+if 'GIT_TOKEN: ${{ github.token }}' in text:
+    raise AssertionError('CI deploy job must not persist github.token')
+if re.search(r'kubectl create secret generic flux-system[^\n]*', text):
+    raise AssertionError('CI deploy job must not create a flux-system secret')
+if re.search(r'kubectl apply -f - <<EOF.*?secretRef:\n\s+name: flux-system',
+             text, re.S):
+    raise AssertionError('flux-system GitRepository must not carry secretRef')
+assert 'kubectl delete secret flux-system -n flux-system --ignore-not-found' in text, \
+    'CI deploy job must drop stale flux-system token secrets'
+PY
 }
 
 main "$@"

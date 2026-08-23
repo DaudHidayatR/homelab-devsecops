@@ -268,7 +268,6 @@ jobs:
       - name: Install Flux controllers and source
         env:
           REPOSITORY_URL: https://github.com/${{ github.repository }}.git
-          GIT_TOKEN: ${{ github.token }}
         run: |
           if ! kubectl get crd gitrepositories.source.toolkit.fluxcd.io >/dev/null 2>&1; then
             echo "Flux CRDs not found. Installing Flux controllers..."
@@ -279,10 +278,6 @@ jobs:
           kubectl wait --for=condition=Available deployment/source-controller -n flux-system --timeout=180s
           kubectl wait --for=condition=Available deployment/kustomize-controller -n flux-system --timeout=180s
           kubectl wait --for=condition=Available deployment/helm-controller -n flux-system --timeout=180s
-          kubectl create secret generic flux-system -n flux-system \
-            --from-literal=username=git \
-            --from-literal=password="${GIT_TOKEN}" \
-            --dry-run=client -o yaml | kubectl apply -f -
 
           if kubectl get gitrepository flux-system -n flux-system >/dev/null 2>&1; then
             kubectl patch gitrepository flux-system -n flux-system \
@@ -299,11 +294,19 @@ jobs:
             url: ${REPOSITORY_URL}
             ref:
               semver: ">=0.0.0"
-            secretRef:
-              name: flux-system
           EOF
           fi
           kubectl wait gitrepository/flux-system -n flux-system --for=condition=Ready --timeout=5m
+
+          # The repository is public, so the source is fetched unauthenticated
+          # over HTTPS. Remove any stale token secret a previous deploy
+          # persisted; the source above no longer references it (created
+          # without secretRef), so no flux-system secret is required.
+          if kubectl get secret flux-system -n flux-system >/dev/null 2>&1 && \
+             ! kubectl get gitrepository flux-system -n flux-system \
+               -o jsonpath='{.spec.secretRef.name}' 2>/dev/null | grep -qx flux-system; then
+            kubectl delete secret flux-system -n flux-system --ignore-not-found
+          fi
 
           kubectl apply -k kubernetes/clusters/homelab
 
