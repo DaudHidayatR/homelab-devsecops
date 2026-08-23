@@ -288,7 +288,7 @@ make openbao-create-approle ROLE=ci-robot POLICY=ci-deployer
 
 ### Troubleshooting First Run
 
-- File audit logging is skipped: add or verify a writable `/vault/audit` path in the OpenBao pod, then rerun `scripts/homelab openbao bootstrap`.
+- File audit logging is skipped: add or verify a writable `/openbao/audit` path in the OpenBao pod, then rerun `scripts/homelab openbao bootstrap`.
 - Userpass or AppRole auth is missing: rerun `scripts/homelab openbao bootstrap`; auth backend enablement is idempotent.
 - OpenBao pod is crash-looping with `server gave HTTP response to HTTPS client`: confirm `kubernetes/clusters/homelab/platform/openbao/release/values.yaml` uses `scheme: HTTP` for probes and `tlsDisable: true`.
 
@@ -310,7 +310,7 @@ For local browser access:
 
 Use this process only to recover OpenBao secret data after its Raft PVC was lost or corrupted. A pod restart with an intact PVC does not trigger recovery; unseal the existing OpenBao instance instead.
 
-> **Recovery boundary:** OpenBao Raft data and Tailscale identity are unrelated. Never pass a Raft snapshot to `make recover` or `scripts/homelab tailscale restore`. Never apply a Tailscale `operator.json` backup to OpenBao or copy it into `/vault/data`.
+> **Recovery boundary:** OpenBao Raft data and Tailscale identity are unrelated. Never pass a Raft snapshot to `make recover` or `scripts/homelab tailscale restore`. Never apply a Tailscale `operator.json` backup to OpenBao or copy it into `/openbao/data`.
 
 **Prerequisites and authoritative source**
 
@@ -363,7 +363,7 @@ Success is observable when status reports `initialized: true`, `sealed: false`, 
 ### Important notes
 
 - **Credential material is not data backup:** preserve the unseal key and administrative access material, but also take independent Raft snapshots if OpenBao data matters.
-- **Data persistence:** OpenBao uses Raft at `/vault/data` on a PVC. Data survives pod restarts but is lost when the kind cluster is destroyed unless a separate Raft snapshot or tested volume backup exists.
+- **Data persistence:** OpenBao uses Raft at `/openbao/data` on a PVC. Data survives pod restarts but is lost when the kind cluster is destroyed unless a separate Raft snapshot or tested volume backup exists.
 - **TLS termination:** OpenBao serves HTTP inside the cluster for this lab. Tailscale Serve terminates HTTPS for tailnet browser access.
 
 ## Tailscale Private Access (Recommended)
