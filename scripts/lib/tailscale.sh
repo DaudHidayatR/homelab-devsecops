@@ -17,7 +17,9 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/kubernetes.sh"
 : "${TAILSCALE_OPERATOR_OAUTH_SECRET:=operator-oauth}"
 : "${TAILSCALE_OPERATOR_VERSION:=v1.96.4}"
 : "${TAILSCALE_BACKUP_DIR:=${COMMON_REPO_ROOT}/.runtime-backups/tailscale}"
+: "${TAILSCALE_SERVE_WATCHER_MANIFEST:=${COMMON_REPO_ROOT}/tailscale/serve-watcher.yaml}"
 TAILSCALE_BACKUP_DIR="$(common::abs_path "${TAILSCALE_BACKUP_DIR}")"
+TAILSCALE_SERVE_WATCHER_MANIFEST="$(common::abs_path "${TAILSCALE_SERVE_WATCHER_MANIFEST}")"
 
 tailscale::operator_manifest_url() {
   printf 'https://raw.githubusercontent.com/tailscale/tailscale/%s/cmd/k8s-operator/deploy/manifests/operator.yaml\n' "${TAILSCALE_OPERATOR_VERSION}"
@@ -52,6 +54,19 @@ keys = [k for k in (d.get('data') or {}) if k.startswith(('_machinekey', '_curre
 if not keys:
     raise SystemExit('operator identity backup lacks required identity keys')
 PY
+}
+
+tailscale::backup_operator_identity() {
+  local output_file="$1"
+  if k8s::secret_exists "${TAILSCALE_NAMESPACE}" "${TAILSCALE_OPERATOR_SECRET}"; then
+    kubectl get secret "${TAILSCALE_OPERATOR_SECRET}" -n "${TAILSCALE_NAMESPACE}" -o json >"${output_file}"
+    log::success "Backed up existing Tailscale operator identity."
+  else
+    log::warn "No existing ${TAILSCALE_NAMESPACE}/${TAILSCALE_OPERATOR_SECRET} identity Secret found."
+    if [[ -d "${TAILSCALE_BACKUP_DIR}" ]]; then
+      log::warn "Local backup root detected: ${TAILSCALE_BACKUP_DIR}"
+    fi
+  fi
 }
 
 tailscale::restore_operator_identity() {
@@ -263,6 +278,12 @@ echo "  Failed: $FAILED"
 if [ $FAILED -gt 0 ]; then
   exit 1
 fi
+}
+
+tailscale::deploy_serve_watcher() {
+  [[ -s "${TAILSCALE_SERVE_WATCHER_MANIFEST}" ]] || common::die "Tailscale Serve watcher manifest missing: ${TAILSCALE_SERVE_WATCHER_MANIFEST}"
+  kubectl apply -f "${TAILSCALE_SERVE_WATCHER_MANIFEST}"
+  log::success "Tailscale Serve watcher deployed."
 }
 
 

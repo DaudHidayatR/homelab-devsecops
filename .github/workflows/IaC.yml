@@ -106,6 +106,9 @@ jobs:
           docker run --rm -v "$PWD:/src" "$GITLEAKS_IMAGE" \
             detect --source /src --report-format json \
             --report-path /src/gitleaks-report.json -v
+      - name: Fail on GitLeaks findings
+        if: always()
+        run: python3 .github/scripts/fail-on-gitleaks.py gitleaks-report.json
       - name: Validate report
         run: |
           if [ ! -s "gitleaks-report.json" ]; then
@@ -141,7 +144,13 @@ jobs:
         run: |
           missing=0
           for f in trivy-config-report.sarif checkov-report.sarif; do
-            if [ ! -s "$f" ]; then
+            if [ -d "$f" ]; then
+              found=$(find "$f" -maxdepth 1 -name '*.sarif' -o -maxdepth 1 -name 'results_*.json' | head -1)
+              if [ -z "$found" ]; then
+                echo "ERROR: no SARIF output inside $f"
+                missing=$((missing + 1))
+              fi
+            elif [ ! -s "$f" ]; then
               echo "ERROR: $f is missing or empty"
               missing=$((missing + 1))
             fi
@@ -149,6 +158,11 @@ jobs:
           if [ "$missing" -gt 0 ]; then
             exit 1
           fi
+      - name: Fail on HIGH/CRITICAL misconfigurations
+        if: always()
+        run: |
+          python3 .github/scripts/fail-on-sarif.py \
+            trivy-config-report.sarif checkov-report.sarif
       - uses: github/codeql-action/upload-sarif@v4
         continue-on-error: true
         if: always()
@@ -207,7 +221,6 @@ jobs:
         if: >-
           steps.kustomize.outputs.has_manifests == 'true' &&
           hashFiles('kubernetes/clusters/homelab/cluster-policies/**/*.rego') != ''
-        continue-on-error: true
         run: |
           docker run --rm -v "$PWD:/src" -w /src "$CONFTEST_IMAGE" test \
             --policy /src/kubernetes/clusters/homelab/cluster-policies/ /src/rendered-manifests/
@@ -215,10 +228,9 @@ jobs:
         if: >-
           steps.kustomize.outputs.has_manifests == 'true' &&
           hashFiles('kubernetes/clusters/homelab/cluster-policies/**/*.yaml') != ''
-        continue-on-error: true
         run: |
           docker run --rm -v "$PWD:/src" -w /src "$KYVERNO_IMAGE" \
-            apply /src/kubernetes/clusters/homelab/cluster-policies/ --resource /src/rendered-manifests.yaml || true
+            apply /src/kubernetes/clusters/homelab/cluster-policies/ --resource /src/rendered-manifests.yaml
 
   deploy:
     name: Deploy (Flux reconcile via Tailscale)
