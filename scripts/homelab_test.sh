@@ -135,6 +135,33 @@ if 'FLUX_GIT_TAG' in source:
         'Flux semver switch must set tag-semver'
 PY
 
+  # P1: the local Flux ref must carry exactly one selector. Semver mode
+  # recreates the source with only --tag-semver, never merging --branch into
+  # the same spec.ref, and never merge-patching the existing object (which
+  # would retain a stale branch/tag/commit key next to semver).
+  python3 - "${root}/scripts/lib/flux.sh" <<'PY'
+import sys
+
+source = open(sys.argv[1]).read()
+
+# The semver recreate block must not also pass --branch: spec.ref must carry
+# exactly one selector (semver), replacing the branch selector entirely.
+semver_block = source[source.index('--tag-semver='):source.index('--interval=1m')]
+assert '--branch=' not in semver_block, \
+    'Flux semver switch must not pass --branch alongside --tag-semver'
+
+# A merge-patch (--type merge) that only sets spec.ref.semver would retain a
+# stale branch key from the existing object; the recreate path must not use it.
+assert '--type merge' not in source, \
+    'Flux semver switch must replace spec.ref atomically, never merge keys'
+
+# The branch selector belongs exclusively to the initial bootstrap, where it
+# is the single selector for the fresh ref created by flux bootstrap.
+bootstrap_args = source[source.index('flux bootstrap github'):source.index('--personal')]
+assert '--branch=' in bootstrap_args, \
+    'Flux bootstrap must keep its single branch selector'
+PY
+
   # P1: Tailscale helpers must define every symbol the command layer calls,
   # and the install ordering must be backup -> install -> restore (restore
   # guarded against running after the Deployment exists).
