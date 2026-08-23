@@ -164,6 +164,7 @@ PY
 
   # P1: lifecycle backup must be bound to the Tailscale backup root and
   # destructive operations to CLUSTER_NAME.
+  # shellcheck disable=SC2016 # literal patterns; variables must stay unexpanded
   grep -q 'kind delete cluster --name "$CLUSTER_NAME"' "${root}/scripts/commands/cluster.sh" || {
     echo "ERROR: kind delete not bound to CLUSTER_NAME" >&2; return 1; }
   grep -q 'TAILSCALE_BACKUP_DIR' "${root}/scripts/commands/cluster.sh" || {
