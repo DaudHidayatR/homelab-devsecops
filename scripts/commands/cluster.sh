@@ -93,6 +93,16 @@ main() {
   log::section "4. Bootstrapping Flux CD"
   flux::bootstrap_or_apply DEPLOYMENT_MODE FLUX_SEMVER_MODE
 
+  kubectl wait --for=condition=Ready \
+    kustomization/bootstrap \
+    kustomization/cluster-resources \
+    kustomization/platform \
+    kustomization/openbao-config \
+    kustomization/cluster-policies \
+    kustomization/operations \
+    kustomization/apps \
+    -n flux-system --timeout=300s
+
   openbao::annotate_tailscale_service
   tailscale::install_if_configured
   setup::print_summary
