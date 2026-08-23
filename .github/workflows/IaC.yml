@@ -285,8 +285,15 @@ jobs:
             --dry-run=client -o yaml | kubectl apply -f -
 
           if kubectl get gitrepository flux-system -n flux-system >/dev/null 2>&1; then
-            kubectl patch gitrepository flux-system -n flux-system \
-              --type merge -p '{"spec":{"ref":{"semver":">=0.0.0"},"interval":"1m"}}'
+            # Replace the existing source atomically: recreating (rather than
+            # merge-patching spec.ref) guarantees the ref object carries only
+            # the semver selector, never a stale branch/tag/commit key.
+            kubectl delete gitrepository flux-system -n flux-system --ignore-not-found
+            flux create source git flux-system \
+              --url="${REPOSITORY_URL}" \
+              --tag-semver=">=0.0.0" \
+              --interval=1m \
+              --namespace=flux-system
           else
             kubectl apply -f - <<EOF
           apiVersion: source.toolkit.fluxcd.io/v1
