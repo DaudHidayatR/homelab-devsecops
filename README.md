@@ -70,7 +70,7 @@ After `make up`, the summary reports Flux, semver, Tailscale, and OpenBao bootst
 
 ### Operational script map
 
-Detailed script guidance lives in [`scripts/README.md`](scripts/README.md); Tailscale access and recovery guidance lives in [`tailscale/README.md`](tailscale/README.md).
+Detailed command, Tailscale access, and recovery guidance lives in [`scripts/README.md`](scripts/README.md).
 
 #### Tracked documentation and simplification work
 
@@ -306,10 +306,65 @@ For local browser access:
    ```
 2. Open [http://localhost:8200](http://localhost:8200) in your browser.
 
-### Important Notes
-- **Back up bootstrap secrets carefully**: losing both the unseal key and recovery material means rebuilding the lab and recreating secrets.
-- **Data Persistence**: OpenBao uses raft storage backed by a PVC. Data survives pod restarts but is lost when the kind cluster is destroyed.
-- **TLS termination**: OpenBao serves HTTP inside the cluster for this lab. Tailscale Serve terminates HTTPS for tailnet browser access.
+### OpenBao integrated-storage Raft recovery
+
+Use this process only to recover OpenBao secret data after its Raft PVC was lost or corrupted. A pod restart with an intact PVC does not trigger recovery; unseal the existing OpenBao instance instead.
+
+> **Recovery boundary:** OpenBao Raft data and Tailscale identity are unrelated. Never pass a Raft snapshot to `make recover` or `scripts/homelab tailscale restore`. Never apply a Tailscale `operator.json` backup to OpenBao or copy it into `/vault/data`.
+
+**Prerequisites and authoritative source**
+
+- An independently stored snapshot created from the source OpenBao cluster with `bao operator raft snapshot save`. This binary snapshot is the authoritative OpenBao data backup.
+- The source cluster's matching Shamir unseal key and an administrative token, stored securely outside the destroyed cluster.
+- A replacement OpenBao pod using integrated Raft storage, plus `kubectl` access. The repository does not yet create, validate, or restore Raft snapshots automatically.
+
+`.runtime-backups/openbao/` contains bootstrap credentials and principal metadata. It is **not** a Raft data backup and cannot recreate stored secrets by itself. Likewise, the OpenBao PVC is live state, not a portable snapshot.
+
+**Ordered restore procedure**
+
+1. Stop writes and preserve the failed PVC before changing anything. Confirm that the selected file is the expected binary Raft snapshot, not a Tailscale JSON backup.
+2. Deploy a clean replacement. If the same cluster rebuild must also preserve Tailscale identity, complete the Tailscale identity procedure below first; it performs the cluster deployment. Otherwise run `make up`. Wait for `openbao-0`, then initialize and unseal that temporary OpenBao instance with `scripts/homelab openbao bootstrap`. This supplies a live authenticated endpoint for the restore.
+3. Copy the snapshot into the pod and restore it with the current temporary root token:
+   ```bash
+   export OPENBAO_TOKEN="$(<.runtime-backups/openbao/root-token.txt)"
+   kubectl cp /secure/path/openbao-raft.snap openbao/openbao-0:/tmp/openbao-raft.snap
+   kubectl exec -n openbao openbao-0 -- \
+     env BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN="$OPENBAO_TOKEN" \
+     bao operator raft snapshot restore -force /tmp/openbao-raft.snap
+   unset OPENBAO_TOKEN
+   ```
+   `-force` is required when the clean replacement has different Shamir keys; it bypasses the seal-key consistency check. Use it only with a trusted snapshot whose original unseal key is available.
+4. The restored data uses the **source snapshot's** Shamir seal. Restore the source unseal key and administrative token to `.runtime-backups/openbao/` with `0600` permissions, then unseal with the source key:
+   ```bash
+   install -m 0600 /secure/path/source-unseal-key.txt .runtime-backups/openbao/unseal-key.txt
+   install -m 0600 /secure/path/source-root-token.txt .runtime-backups/openbao/root-token.txt
+   UNSEAL_KEY="$(<.runtime-backups/openbao/unseal-key.txt)"
+   kubectl exec -n openbao openbao-0 -- \
+     env BAO_ADDR=http://127.0.0.1:8200 bao operator unseal "$UNSEAL_KEY"
+   unset UNSEAL_KEY
+   ```
+   Never use Tailscale OAuth or operator identity material here.
+5. Remove `/tmp/openbao-raft.snap` from the pod after verification and retain the external snapshot according to the backup policy.
+
+**Success checks**
+
+```bash
+export OPENBAO_TOKEN="$(<.runtime-backups/openbao/root-token.txt)"
+make openbao-status
+kubectl exec -n openbao openbao-0 -- \
+  env BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN="$OPENBAO_TOKEN" \
+  bao operator raft list-peers
+# Read one known pre-snapshot secret or policy, then:
+unset OPENBAO_TOKEN
+```
+
+Success is observable when status reports `initialized: true`, `sealed: false`, and `storage_type: raft`; `list-peers` shows `openbao-0` as the single leader; and a known pre-snapshot secret or policy can be read. Follow the upstream [OpenBao Raft snapshot documentation](https://openbao.org/docs/commands/operator/raft/#snapshot) and rehearse this procedure before relying on it.
+
+### Important notes
+
+- **Credential material is not data backup:** preserve the unseal key and administrative access material, but also take independent Raft snapshots if OpenBao data matters.
+- **Data persistence:** OpenBao uses Raft at `/vault/data` on a PVC. Data survives pod restarts but is lost when the kind cluster is destroyed unless a separate Raft snapshot or tested volume backup exists.
+- **TLS termination:** OpenBao serves HTTP inside the cluster for this lab. Tailscale Serve terminates HTTPS for tailnet browser access.
 
 ## Tailscale Private Access (Recommended)
 
@@ -323,7 +378,7 @@ make up
 
 When credentials are present, `scripts/homelab cluster up` creates the Tailscale namespace and OAuth Secret, installs the operator, annotates OpenBao, configures Tailscale Serve on proxy pods, and deploys the Serve watcher.
 
-Manual fallback/recovery path:
+Manual Tailscale install and Serve repair:
 
 ```bash
 make tailscale
@@ -331,7 +386,7 @@ scripts/homelab tailscale configure-serve
 scripts/homelab tailscale check
 ```
 
-Use the manual path when you intentionally skipped Tailscale during `make up`, are repairing Serve configuration, or are recovering after a cluster rebuild. See `tailscale/README.md` for OAuth, Tailnet Lock, proxy signing, and identity recovery details.
+Use this manual path when you intentionally skipped Tailscale during `make up` or are repairing Serve configuration. It does not restore operator identity or any OpenBao state; use the Tailscale identity procedure below for a destructive cluster rebuild. Detailed Tailscale guidance is in [`scripts/README.md`](scripts/README.md).
 
 Once the operator is running, access admin UIs directly from any device on your tailnet:
 
@@ -342,22 +397,41 @@ Once the operator is running, access admin UIs directly from any device on your 
 
 3. No port-forwarding, SSH tunnels, or public IPs required.
 
-### Safe redeploy, reboot, and recovery
+### Tailscale identity recovery during cluster rebuild
 
-Use a non-destructive redeploy for normal app changes:
+**Purpose and trigger:** preserve the Tailscale Kubernetes operator's device identity when the kind cluster must be destroyed or has already been lost. Use `make redeploy` instead for normal application changes.
+
+> **Recovery boundary:** `make recover` is Tailscale identity recovery, not full-cluster data recovery. It restores Kubernetes Secret `tailscale/operator`; it does not restore OpenBao's PVC, Raft data, secrets, or bootstrap credentials. Do not pass an OpenBao snapshot or `.runtime-backups/openbao/` to this command.
+
+**Prerequisites and authoritative source**
+
+- `kind`, `kubectl`, `python3`, the repository configuration, and working Flux prerequisites.
+- If no live cluster exists, a validated `.runtime-backups/tailscale/<timestamp>/operator.json`; this Secret export is the authoritative Tailscale identity backup. Optional `operator-oauth.json` restores OAuth configuration.
+- If a live cluster exists, the command first creates a fresh backup from live Secret `tailscale/operator` and intentionally uses that new path instead of the older supplied path.
+
+**Ordered recovery steps**
+
+1. Run the selected recovery target:
+   ```bash
+   BACKUP_DIR=.runtime-backups/tailscale/<timestamp> make recover
+   ```
+2. The target validates operator identity keys. With a live cluster, it atomically backs up Tailscale Secrets before deleting the cluster and refuses to continue if required identity is missing.
+3. It creates a bare kind cluster, restores `tailscale/operator` before the operator starts, then runs normal Flux bootstrap and workload reconciliation.
+4. If Tailnet Lock requires it, sign newly registered proxy nodes, then reconcile Serve:
+   ```bash
+   scripts/homelab tailscale sign --sudo
+   scripts/homelab tailscale configure-serve
+   ```
+
+**Success checks**
 
 ```bash
-make redeploy
-```
-
-Do not use `make down && make up` for normal redeploys. `make down` deletes the kind cluster and can remove Kubernetes Tailscale identity state.
-
-If a full cluster rebuild is required, use the ordered recovery target. It validates and restores Tailscale identity before Flux starts the operator:
-
-```bash
-BACKUP_DIR=.runtime-backups/tailscale/<timestamp> make recover
+kubectl rollout status deployment/operator -n tailscale --timeout=120s
+kubectl get secret operator -n tailscale
 scripts/homelab tailscale check
 ```
+
+Success is observable when the operator rollout completes, the restored Secret exists, `tailscale check` passes, and the Admin Console shows the existing operator device identity rather than a new duplicate such as `tailscale-operator-1`.
 
 If Tailscale devices were deleted manually in the Tailscale Admin Console, reset the stale Kubernetes identities and let the proxies register fresh:
 

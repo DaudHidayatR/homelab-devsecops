@@ -89,7 +89,7 @@ Automated steps:
 
 Use this primary path for normal first-time setup.
 
-## Manual fallback flow
+## Manual Tailscale install and Serve repair
 
 Use this when Tailscale credentials were not present during `make up`, or when you are repairing only Tailscale access:
 
@@ -101,26 +101,28 @@ scripts/homelab tailscale check
 
 `make tailscale` runs `scripts/homelab tailscale install`. Treat it as an advanced/manual path, not the default `make up` path.
 
-## Recovery and identity preservation
+## Tailscale identity recovery during cluster rebuild
 
-The Tailscale operator stores its device identity in the Kubernetes Secret:
+The Tailscale operator stores its authoritative device identity in Kubernetes Secret `tailscale/operator`. The backup form is `.runtime-backups/tailscale/<timestamp>/operator.json`. Losing it during a cluster rebuild can register a duplicate device such as `tailscale-operator-1`.
 
-```text
-tailscale/operator
-```
+> **Tailscale only:** this procedure does not back up or restore OpenBao Raft data, its PVC, or secrets. Never pass an OpenBao snapshot or `.runtime-backups/openbao/` to `make recover`; see the OpenBao Raft procedure in the project [README](../README.md#openbao-integrated-storage-raft-recovery).
 
-That Secret contains machine/profile identity material. If it is lost during a cluster rebuild, the operator can register as a new duplicate Tailscale device, often with a suffix such as `tailscale-operator-1`.
+Use this only when the kind cluster must be destroyed or has already been lost; use `make redeploy` for normal changes. It requires a validated `operator.json` if no live cluster exists, plus working kind, kubectl, Python, repository configuration, and Flux prerequisites.
 
-### Full cluster rebuild sequence
+Ordered recovery:
 
-Use the supported recovery target. It validates the identity backup, backs up and deletes a live cluster when present, creates a bare Kind cluster, restores identity before operator startup, then bootstraps Flux and workloads:
+1. Run `BACKUP_DIR=.runtime-backups/tailscale/<timestamp> make recover`.
+2. With a live cluster, recovery validates and backs up live Secret `tailscale/operator`, deletes the cluster, and uses that fresh backup instead of the older supplied path.
+3. Recovery creates a bare kind cluster, restores identity before operator startup, and bootstraps Flux and workloads. Missing or malformed identity aborts the operation.
+4. If required, run `scripts/homelab tailscale sign --sudo`, then `scripts/homelab tailscale configure-serve`.
+5. Verify the operator rollout and identity:
+   ```bash
+   kubectl rollout status deployment/operator -n tailscale --timeout=120s
+   kubectl get secret operator -n tailscale
+   scripts/homelab tailscale check
+   ```
 
-```bash
-BACKUP_DIR=.runtime-backups/tailscale/<timestamp> make recover
-scripts/homelab tailscale check
-```
-
-If a live cluster exists, recovery uses the exact new backup produced during destruction rather than the supplied older path. Missing or malformed operator identity aborts recovery.
+Success means the rollout and access check pass and the existing operator device identity remains in the Tailscale Admin Console without a new duplicate.
 
 ### Stale or deleted Tailscale devices
 
