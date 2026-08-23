@@ -56,6 +56,37 @@ if not keys:
 PY
 }
 
+tailscale::validate_oauth_file() {
+  local backup_file="$1"
+  [[ -s "${backup_file}" ]] || return 0  # absent or empty = optional; skipped by restore
+  python3 - "${backup_file}" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1]))
+data = d.get('data') or {}
+for key in ('client_id', 'client_secret'):
+    if key not in data:
+        raise SystemExit(f'operator-oauth backup lacks required key: {key}')
+PY
+}
+
+# Proxy (ts-*) identities are intentionally NOT restored: the Tailscale
+# operator names them with per-rebuild random suffixes and owns/recreates
+# them. Emit a non-secret note when a backup directory contains proxy
+# identity data so nobody mistakes all-secrets.json for a recovery input.
+tailscale::note_excluded_proxy_identities() {
+  local backup_dir="$1"
+  local found=0 f
+  if [[ -f "${backup_dir}/all-secrets.json" ]]; then
+    found=1
+  fi
+  for f in "${backup_dir}"/ts-*; do
+    [[ -e "${f}" ]] && found=1
+  done
+  if [[ "${found}" -eq 1 ]]; then
+    log::info "Backup contains proxy identity data (all-secrets.json or ts-* Secrets). Proxy identities are not restored by design; proxy devices re-register after rebuild."
+  fi
+}
+
 tailscale::backup_operator_identity() {
   local output_file="$1"
   if k8s::secret_exists "${TAILSCALE_NAMESPACE}" "${TAILSCALE_OPERATOR_SECRET}"; then

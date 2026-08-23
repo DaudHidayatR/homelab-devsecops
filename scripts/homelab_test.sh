@@ -189,6 +189,67 @@ assert 'Refusing to restore identity after the Tailscale operator has started' i
     'restore_operator_identity must refuse to run after the Deployment exists'
 PY
 
+  # P1: the recovery contract is pinned to operator + optional OAuth only.
+  # Proxy (ts-*) identities are intentionally NOT restored: restore must not
+  # read or apply all-secrets.json or any ts-* secret, must fail clearly when
+  # a backup dir has proxy data but no valid operator.json, and the docs must
+  # say so explicitly in both READMEs.
+  python3 - "${root}/scripts/commands/tailscale.sh" "${root}/scripts/lib/tailscale.sh" \
+    "${root}/README.md" "${root}/scripts/README.md" <<'PY'
+import re
+import sys
+
+cmd, lib, readme, scripts_readme = (open(p).read() for p in sys.argv[1:5])
+
+restore = cmd[cmd.index('command_tailscale_restore()'):]
+restore = restore[:restore.index('command=')]
+
+# Restore may read only operator.json (required) and operator-oauth.json
+# (optional) from the backup directory. all-secrets.json may appear at most
+# once, and only as an existence check that fails the restore.
+refs = re.findall(r'\$\{BACKUP_DIR\}/[^\s"\']+', restore)
+allowed = {'${BACKUP_DIR}/operator.json', '${BACKUP_DIR}/operator-oauth.json'}
+unexpected = [r for r in refs if r not in allowed]
+assert unexpected == [] or unexpected == ['${BACKUP_DIR}/all-secrets.json'], \
+    f'restore reads unexpected backup files: {unexpected}'
+assert refs.count('${BACKUP_DIR}/all-secrets.json') <= 1, \
+    'all-secrets.json may appear only as a fail-clear existence check'
+
+# The only kubectl apply in restore is the optional operator-oauth pipe
+# (the required operator.json apply lives in restore_operator_identity).
+applies = re.findall(r'kubectl apply[^\n]*', restore)
+assert len(applies) == 1 and applies[0].strip() == 'kubectl apply -f -', \
+    f'restore must contain exactly one piped kubectl apply, got: {applies}'
+assert 'python3 - "${BACKUP_DIR}/operator-oauth.json" <<' in restore, \
+    'the single apply must be the operator-oauth pipe (python3 -> kubectl apply)'
+
+# ts-* may appear only in explanatory "not restored by design" prose, never
+# as a read/apply target.
+ts_lines = [line for line in restore.splitlines() if 'ts-' in line]
+assert ts_lines and all('not restored by design' in line for line in ts_lines), \
+    'ts-* may appear only in the not-restored-by-design explanation'
+
+# Fail-before-partial: a backup dir with proxy data but no valid
+# operator.json must abort with a clear non-secret message.
+assert 'Backup contains only all-secrets.json' in cmd, \
+    'restore must fail clearly when only all-secrets.json is present'
+
+# OAuth input is validated at the boundary before any apply.
+assert 'tailscale::validate_oauth_file' in cmd and 'tailscale::validate_oauth_file()' in lib, \
+    'operator-oauth.json must be validated before restore applies it'
+assert 'client_id' in lib and 'client_secret' in lib, \
+    'validate_oauth_file must require client_id and client_secret'
+
+# Docs must narrow the contract explicitly (both READMEs).
+for text, name in ((readme, 'README.md'), (scripts_readme, 'scripts/README.md')):
+    assert 'not restored' in text and 'ts-' in text, \
+        f'{name} must state explicitly that ts-* proxy identities are not restored'
+assert 'all-secrets.json' in scripts_readme and 'not consumed by recovery' in scripts_readme, \
+    'scripts/README.md must document all-secrets.json as not consumed by recovery'
+assert 'all-secrets.json' in readme and 'forensic' in readme, \
+    'README.md must document all-secrets.json as a forensic snapshot'
+PY
+
   # P1: lifecycle backup must be bound to the Tailscale backup root and
   # destructive operations to CLUSTER_NAME.
   # shellcheck disable=SC2016 # literal patterns; variables must stay unexpanded

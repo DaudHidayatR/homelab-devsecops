@@ -105,6 +105,10 @@ scripts/homelab tailscale check
 
 The Tailscale operator stores its authoritative device identity in Kubernetes Secret `tailscale/operator`. The backup form is `.runtime-backups/tailscale/<timestamp>/operator.json`. Losing it during a cluster rebuild can register a duplicate device such as `tailscale-operator-1`.
 
+**What recovery restores:** the operator device identity (`tailscale/operator`, required, validated for `_machinekey`/`_current-profile`/`profile-*` keys) and, when present, the optional OAuth configuration (`operator-oauth.json`). Nothing else. Proxy identities (`ts-*` Secrets) are intentionally **not** restored: the Tailscale Kubernetes operator names them with per-rebuild randomized suffixes and owns/recreates them on reconcile, so a backed-up `ts-*` Secret cannot be re-applied by name and would be overwritten anyway. Proxy devices re-register with the operator after a rebuild and appear as new devices; sign them when Tailnet Lock is enabled (see below).
+
+**Role of `all-secrets.json`:** teardown and `tailscale reset` write a snapshot of every Secret in the `tailscale` namespace to `all-secrets.json`, but recovery never consumes it. It is a forensic/reset snapshot — the input to the intentional `scripts/homelab tailscale reset` flow (back up before deleting stale identities) — not a recovery artifact.
+
 > **Tailscale only:** this procedure does not back up or restore OpenBao Raft data, its PVC, or secrets. Never pass an OpenBao snapshot or `.runtime-backups/openbao/` to `make recover`; see the OpenBao Raft procedure in the project [README](../README.md#openbao-integrated-storage-raft-recovery), which includes snapshot creation, off-PVC storage, restore, and the pod-replacement persistence boundary. The live pod-replacement verification runbook is at [`kubernetes/scripts/openbao-raft-persistence-verification.md`](../kubernetes/scripts/openbao-raft-persistence-verification.md).
 
 Use this only when the kind cluster must be destroyed or has already been lost; use `make redeploy` for normal changes. It requires a validated `operator.json` if no live cluster exists, plus working kind, kubectl, Python, repository configuration, and Flux prerequisites.
@@ -126,7 +130,7 @@ Success means the rollout and access check pass and the existing operator device
 
 ### Stale or deleted Tailscale devices
 
-If Kubernetes proxy devices were deleted manually in the Tailscale Admin Console, reset stale Kubernetes identities and let proxies register fresh:
+Proxy identities are not restored by recovery (see above), so after a rebuild the proxies register as new devices. If Kubernetes proxy devices were deleted manually in the Tailscale Admin Console, reset stale Kubernetes identities and let proxies register fresh:
 
 ```bash
 scripts/homelab tailscale reset
@@ -200,7 +204,10 @@ Once proxy DNS and Serve are ready, admin UIs are available from devices allowed
 | File | Purpose |
 |---|---|
 | `install-operator.sh` | Manual operator installation fallback |
-| `restore-state.sh` | Restore saved Tailscale Kubernetes identity state |
+| `restore-state.sh` | Restore saved Tailscale operator identity state (operator.json + optional operator-oauth.json) |
 | `reset-proxies.sh` | Remove stale proxy identity state so proxies can register fresh |
 | `sign-proxies.sh` | Sign new proxy devices when Tailnet Lock is enabled |
 | `check-access.sh` | Validate DNS, HTTPS, and Serve access expectations |
+| `.runtime-backups/tailscale/<timestamp>/operator.json` | Authoritative operator identity backup, written by `cluster down` / `tailscale reset`; the only required recovery input |
+| `.runtime-backups/tailscale/<timestamp>/operator-oauth.json` | Optional OAuth config backup; restored when present |
+| `.runtime-backups/tailscale/<timestamp>/all-secrets.json` | Full-namespace Secret snapshot for forensics and the `tailscale reset` flow; **not consumed by recovery** (proxy `ts-*` identities are not restored) |

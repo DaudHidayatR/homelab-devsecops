@@ -422,12 +422,14 @@ Once the operator is running, access admin UIs directly from any device on your 
 
 **Purpose and trigger:** preserve the Tailscale Kubernetes operator's device identity when the kind cluster must be destroyed or has already been lost. Use `make redeploy` instead for normal application changes.
 
-> **Recovery boundary:** `make recover` is Tailscale identity recovery, not full-cluster data recovery. It restores Kubernetes Secret `tailscale/operator`; it does not restore OpenBao's PVC, Raft data, secrets, or bootstrap credentials. Do not pass an OpenBao snapshot or `.runtime-backups/openbao/` to this command. For OpenBao data recovery (pod replacement, PVC loss, or a destroyed cluster), use the [OpenBao Raft snapshot procedure](#openbao-integrated-storage-raft-recovery) — the PVC at `/openbao/data` survives pod replacement only, and a Raft snapshot stored outside the pod/PVC is the only portable backup.
+> **Recovery boundary:** `make recover` is Tailscale identity recovery, not full-cluster data recovery. It restores Kubernetes Secret `tailscale/operator` and, when present in the backup, `tailscale/operator-oauth`; it does not restore OpenBao's PVC, Raft data, secrets, or bootstrap credentials. Do not pass an OpenBao snapshot or `.runtime-backups/openbao/` to this command. For OpenBao data recovery (pod replacement, PVC loss, or a destroyed cluster), use the [OpenBao Raft snapshot procedure](#openbao-integrated-storage-raft-recovery) — the PVC at `/openbao/data` survives pod replacement only, and a Raft snapshot stored outside the pod/PVC is the only portable backup.
+>
+> **Proxy (`ts-*`) identities are NOT restored.** Teardown writes `all-secrets.json` — a snapshot of every Secret in the `tailscale` namespace — but recovery never consumes it. `all-secrets.json` exists for forensics and as the input to the intentional `scripts/homelab tailscale reset` flow; it is not a recovery artifact. Proxy identity Secrets (`ts-*`) are owned and recreated by the Tailscale Kubernetes operator with per-rebuild randomized names, so restoring them by name is unsupported: after a rebuild, proxy devices re-register with the operator and appear as new devices. If Tailnet Lock is enabled, sign the new proxy nodes after recovery (step 4 below).
 
 **Prerequisites and authoritative source**
 
 - `kind`, `kubectl`, `python3`, the repository configuration, and working Flux prerequisites.
-- If no live cluster exists, a validated `.runtime-backups/tailscale/<timestamp>/operator.json`; this Secret export is the authoritative Tailscale identity backup. Optional `operator-oauth.json` restores OAuth configuration.
+- If no live cluster exists, a validated `.runtime-backups/tailscale/<timestamp>/operator.json`; this Secret export is the authoritative Tailscale identity backup. Optional `operator-oauth.json` restores OAuth configuration. Other files in the backup directory (including `all-secrets.json`) are ignored by recovery: proxy `ts-*` identities are not restored.
 - If a live cluster exists, the command first creates a fresh backup from live Secret `tailscale/operator` and intentionally uses that new path instead of the older supplied path.
 
 **Ordered recovery steps**
@@ -452,7 +454,7 @@ kubectl get secret operator -n tailscale
 scripts/homelab tailscale check
 ```
 
-Success is observable when the operator rollout completes, the restored Secret exists, `tailscale check` passes, and the Admin Console shows the existing operator device identity rather than a new duplicate such as `tailscale-operator-1`.
+Success is observable when the operator rollout completes, the restored Secret exists, `tailscale check` passes, and the Admin Console shows the existing operator device identity rather than a new duplicate such as `tailscale-operator-1`. Proxy devices reappear as new devices after recovery (their `ts-*` identity Secrets are not restored by design); sign them if Tailnet Lock is enabled, then re-run Serve configuration.
 
 If Tailscale devices were deleted manually in the Tailscale Admin Console, reset the stale Kubernetes identities and let the proxies register fresh:
 
