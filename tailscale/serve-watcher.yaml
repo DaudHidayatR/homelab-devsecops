@@ -20,16 +20,12 @@ rules:
 # pods/exec is constrained by:
 # 1. Namespace scope (this Role, not ClusterRole) -- exec only on tailscale pods
 # 2. Runtime label filter in the watcher script (tailscale.com/managed=true)
+# KSV053 (Exec into Pods) is allowlisted in .trivyignore with justification.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: tailscale-serve-watcher
   namespace: tailscale
-  annotations:
-    trivy.io/skip: >-
-      KSV053=Exec into Tailscale-managed proxy pods is required for the
-      serve watcher to run 'tailscale serve'; scoped to the tailscale
-      namespace and pods labeled tailscale.com/managed=true only.
 rules:
   - apiGroups: [""]
     resources: ["pods"]

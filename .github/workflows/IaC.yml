@@ -133,6 +133,7 @@ jobs:
         run: |
           docker run --rm -v "$PWD:/src" -w /src "$TRIVY_IMAGE" \
             config --severity "$SEVERITY" --format sarif \
+            --ignorefile /src/.trivyignore \
             --output trivy-config-report.sarif /src
       - name: Checkov scan
         continue-on-error: true

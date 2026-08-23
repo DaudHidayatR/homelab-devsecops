@@ -1,4 +1,8 @@
-# These checks are enforced via Kustomize patches at build time.
-# Raw-file scanning reports false positives; rendered-manifest scanning is authoritative.
-KSV-0014
-KSV-0118
+# Trivy misconfiguration findings allowed with justification.
+#
+# KSV053 (Exec into Pods): the Tailscale serve watcher needs pods/exec
+# create to run `tailscale serve` on Tailscale-managed proxy pods. The Role
+# is namespaced to tailscale and the watcher script filters pods by the
+# tailscale.com/managed=true label. Checkov covers the same file and the
+# Deployment itself passes all workload hardening checks.
+KSV053
