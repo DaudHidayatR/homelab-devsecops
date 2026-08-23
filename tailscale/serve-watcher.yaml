@@ -1,0 +1,218 @@
+---
+# ServiceAccount for the tailscale-serve-watcher
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: tailscale-serve-watcher
+  namespace: tailscale
+---
+# ClusterRole for reading services in all namespaces (to determine target port)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: tailscale-serve-watcher
+rules:
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get", "list"]
+---
+# Role for accessing proxy pods in the tailscale namespace only.
+# pods/exec is constrained by:
+# 1. Namespace scope (this Role, not ClusterRole) -- exec only on tailscale pods
+# 2. Runtime label filter in the watcher script (tailscale.com/managed=true)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: tailscale-serve-watcher
+  namespace: tailscale
+  annotations:
+    trivy.io/skip: >-
+      KSV053=Exec into Tailscale-managed proxy pods is required for the
+      serve watcher to run 'tailscale serve'; scoped to the tailscale
+      namespace and pods labeled tailscale.com/managed=true only.
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create"]
+---
+# ClusterRoleBinding for service read access
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: tailscale-serve-watcher
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: tailscale-serve-watcher
+subjects:
+  - kind: ServiceAccount
+    name: tailscale-serve-watcher
+    namespace: tailscale
+---
+# RoleBinding for pod access
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: tailscale-serve-watcher
+  namespace: tailscale
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: tailscale-serve-watcher
+subjects:
+  - kind: ServiceAccount
+    name: tailscale-serve-watcher
+    namespace: tailscale
+---
+# Deployment that continuously ensures tailscale serve is configured on proxy pods
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tailscale-serve-watcher
+  namespace: tailscale
+  annotations:
+    checkov.io/skip1: >-
+      CKV_K8S_38=Service account token is required for the watcher to run
+      kubectl get/list/exec against Tailscale-managed proxy pods; RBAC is scoped
+      to service reads plus tailscale namespace pod access.
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: tailscale-serve-watcher
+  template:
+    metadata:
+      labels:
+        app: tailscale-serve-watcher
+    spec:
+      automountServiceAccountToken: true
+      serviceAccountName: tailscale-serve-watcher
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: watcher
+          image: bitnami/kubectl@sha256:e2b97dde9666986c61c56d49aae85a714b89b69392baa531438e74ec34096fb4
+          imagePullPolicy: Always
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 10001
+            capabilities:
+              drop:
+              - ALL
+          command:
+            - /bin/sh
+            - -c
+            - |
+              echo "Starting tailscale serve watcher..."
+              while true; do
+                echo "$(date -Iseconds) Checking proxy pods..."
+                # Find all proxy pods managed by the tailscale operator
+                for POD in $(kubectl get pods -n tailscale \
+                  -l tailscale.com/managed=true,tailscale.com/parent-resource-type=svc \
+                  -o name 2>/dev/null | grep -v operator); do
+                  POD_NAME=$(basename "$POD")
+                  echo "  Checking $POD_NAME..."
+
+                  # Check current serve configuration. Do not skip until the desired backend
+                  # is known: multi-port services such as RabbitMQ expose AMQP first and
+                  # the HTTP management UI second.
+                  SERVE_STATUS=$(kubectl exec -n tailscale "$POD_NAME" -c tailscale -- \
+                    tailscale serve status 2>/dev/null || true)
+
+                  echo "  Configuring $POD_NAME..."
+
+                  # Get the target IP from environment
+                  DEST_IP=$(kubectl exec -n tailscale "$POD_NAME" -c tailscale -- \
+                    sh -c 'echo $TS_DEST_IP' 2>/dev/null || true)
+                  if [ -z "$DEST_IP" ]; then
+                    echo "  ✗ Could not get TS_DEST_IP for $POD_NAME"
+                    continue
+                  fi
+
+                  # Get parent service info
+                  PARENT_SVC=$(kubectl get pod -n tailscale "$POD_NAME" \
+                    -o jsonpath='{.metadata.labels.tailscale\.com/parent-resource}' 2>/dev/null || true)
+                  PARENT_NS=$(kubectl get pod -n tailscale "$POD_NAME" \
+                    -o jsonpath='{.metadata.labels.tailscale\.com/parent-resource-ns}' 2>/dev/null || true)
+                  if [ -z "$PARENT_SVC" ] || [ -z "$PARENT_NS" ]; then
+                    echo "  ✗ Could not get parent service for $POD_NAME"
+                    continue
+                  fi
+
+                  TARGET_PORT=""
+                  # Prefer ports that are safe for browser-based HTTPS Serve.
+                  for PORT_NAME in https http management web ui; do
+                    TARGET_PORT=$(kubectl get svc -n "$PARENT_NS" "$PARENT_SVC" \
+                      -o jsonpath="{.spec.ports[?(@.name=='${PORT_NAME}')].port}" 2>/dev/null || true)
+                    if [ -n "$TARGET_PORT" ]; then
+                      break
+                    fi
+                  done
+                  if [ -z "$TARGET_PORT" ]; then
+                    TARGET_PORT=$(kubectl get svc -n "$PARENT_NS" "$PARENT_SVC" \
+                      -o jsonpath='{.spec.ports[0].port}' 2>/dev/null || true)
+                  fi
+                  if [ -z "$TARGET_PORT" ]; then
+                    echo "  ✗ Could not get target port for $PARENT_SVC"
+                    continue
+                  fi
+
+                  BACKEND_URL="http://${DEST_IP}:${TARGET_PORT}"
+                  echo "    Backend: $BACKEND_URL"
+
+                  if echo "$SERVE_STATUS" | grep -q "$BACKEND_URL"; then
+                    echo "  ✓ $POD_NAME already configured"
+                    continue
+                  fi
+
+                  if echo "$SERVE_STATUS" | grep -q "https://"; then
+                    echo "  Updating stale serve config:"
+                    printf '%s\n' "$SERVE_STATUS" | while IFS= read -r line; do
+                      echo "    $line"
+                    done
+                  fi
+
+                  kubectl exec -n tailscale "$POD_NAME" -c tailscale -- \
+                    tailscale serve --bg --set-path / "$BACKEND_URL" 2>&1 || true
+                  echo "  ✓ Configured $POD_NAME"
+                done
+                echo "$(date -Iseconds) Check complete, sleeping 300s..."
+                sleep 300
+              done
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "50m"
+            limits:
+              memory: "128Mi"
+              cpu: "200m"
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          livenessProbe:
+            exec:
+              command:
+              - test
+              - -f
+              - /proc/1/cmdline
+            initialDelaySeconds: 30
+            periodSeconds: 120
+          readinessProbe:
+            exec:
+              command:
+              - test
+              - -f
+              - /proc/1/cmdline
+            initialDelaySeconds: 10
+            periodSeconds: 30
+      volumes:
+        - name: tmp
+          emptyDir: {}
