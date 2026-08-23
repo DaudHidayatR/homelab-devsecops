@@ -348,8 +348,19 @@ source "${PROJECT_ROOT}/scripts/lib/tailscale.sh"
 BACKUP_DIR="${1:-}"
 [[ -n "${BACKUP_DIR}" ]] || common::die "Usage: $0 <validated-backup-directory>"
 [[ -d "${BACKUP_DIR}" ]] || common::die "Backup directory does not exist: ${BACKUP_DIR}"
+
+# Input-boundary validation: every required file is validated BEFORE any
+# cluster mutation, so invalid or partial backups fail before recovery
+# creates a namespace or applies anything.
+if [[ ! -s "${BACKUP_DIR}/operator.json" && -s "${BACKUP_DIR}/all-secrets.json" ]]; then
+  common::die "Backup contains only all-secrets.json (a forensic/reset snapshot), not the required operator.json. Recovery restores tailscale/operator only; proxy ts-* identities are not restored by design."
+fi
+tailscale::validate_oauth_file "${BACKUP_DIR}/operator-oauth.json"
+tailscale::validate_identity_file "${BACKUP_DIR}/operator.json"
+
 ! k8s::deployment_exists "${TAILSCALE_NAMESPACE}" "${TAILSCALE_OPERATOR_DEPLOYMENT}" || common::die "Refusing to patch identity after the Tailscale operator has started."
 
+tailscale::note_excluded_proxy_identities "${BACKUP_DIR}"
 tailscale::ensure_namespace
 tailscale::restore_operator_identity "${BACKUP_DIR}/operator.json"
 if [[ -s "${BACKUP_DIR}/operator-oauth.json" ]]; then
