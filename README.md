@@ -72,6 +72,17 @@ After `make up`, the summary reports Flux, semver, Tailscale, and OpenBao bootst
 
 Detailed script guidance lives in [`scripts/README.md`](scripts/README.md); Tailscale access and recovery guidance lives in [`tailscale/README.md`](tailscale/README.md).
 
+#### Tracked documentation and simplification work
+
+[GitHub issue #51](https://github.com/DaudHidayatR/homelab-devsecops/issues/51) tracks the remaining behavior-preserving script documentation and simplification work:
+
+- keep the operational script catalog and `make up` phase/mode documentation accurate;
+- clarify the OpenBao and Tailscale primary, manual, and recovery lifecycles;
+- identify shared phase/policy helpers where they reduce duplication without changing the supported `make up` UX; and
+- make the completed deployment mode explicit to operators.
+
+Runtime, lifecycle, persistence, security-gate, and CI defects tracked in [issue #57](https://github.com/DaudHidayatR/homelab-devsecops/issues/57) are explicitly excluded from this documentation/simplification entry and must not be duplicated here.
+
 ## Branch Management
 
 GitHub's "Automatically delete head branches" is enabled on this repository. Every PR merge deletes the source branch automatically, keeping the branch list clean.
