@@ -206,13 +206,13 @@ if openbao::exec_quiet audit list -format=json | python3 -c "import json,sys; d=
 else
   echo ""
   echo "=== Checking audit log path ==="
-  kubectl exec -n "${OPENBAO_NS}" "${OPENBAO_POD}" -- mkdir -p /vault/audit
-  if kubectl exec -n "${OPENBAO_NS}" "${OPENBAO_POD}" -- test -w /vault/audit >/dev/null 2>&1; then
-    echo "  /vault/audit is writable. Enabling file audit device."
-    openbao::exec audit enable file file_path=/vault/audit/audit.log
-    echo "  File audit logging enabled at /vault/audit/audit.log."
+  kubectl exec -n "${OPENBAO_NS}" "${OPENBAO_POD}" -- mkdir -p /openbao/audit
+  if kubectl exec -n "${OPENBAO_NS}" "${OPENBAO_POD}" -- test -w /openbao/audit >/dev/null 2>&1; then
+    echo "  /openbao/audit is writable. Enabling file audit device."
+    openbao::exec audit enable file file_path=/openbao/audit/audit.log
+    echo "  File audit logging enabled at /openbao/audit/audit.log."
   else
-    echo "  WARNING: /vault/audit is not writable in the OpenBao pod."
+    echo "  WARNING: /openbao/audit is not writable in the OpenBao pod."
     echo "  Skipping file audit enablement. Add a writable audit volume and re-run bootstrap."
   fi
 fi

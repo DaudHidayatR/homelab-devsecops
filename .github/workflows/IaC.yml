@@ -89,6 +89,8 @@ jobs:
         run: |
           tflint --init
           tflint -f compact
+      - name: OpenBao Raft path vs PVC mount
+        run: python3 scripts/check_openbao_raft_path.py
 
   secrets:
     name: Secret Detection

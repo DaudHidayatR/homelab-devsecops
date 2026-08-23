@@ -83,18 +83,22 @@ server:
     raft:
       enabled: true
       setNodeId: true
-    config: |
-      ui = true
+      # Raft storage config. The OpenBao chart renders server.ha.raft.config
+      # (not server.ha.config) when server.ha.raft.enabled=true, and mounts
+      # server.dataStorage at /openbao/data by default. Keep the Raft path in
+      # lock-step with that mount so Raft state lands on the PVC.
+      config: |
+        ui = true
 
-      listener "tcp" {
-        tls_disable = 1
-        address = "[::]:8200"
-        cluster_address = "[::]:8201"
-      }
+        listener "tcp" {
+          tls_disable = 1
+          address = "[::]:8200"
+          cluster_address = "[::]:8201"
+        }
 
-      storage "raft" {
-        path = "/vault/data"
-      }
+        storage "raft" {
+          path = "/openbao/data"
+        }
 
 ui:
   enabled: true
