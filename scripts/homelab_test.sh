@@ -114,6 +114,7 @@ PY
   grep -q 'TAILSCALE_VPS_IP_PLACEHOLDER' "${kind_config}"
 
   # P1: destructive kind lifecycle operations must be bound to CLUSTER_NAME
+  # shellcheck disable=SC2016 # literal pattern; $CLUSTER_NAME must stay unexpanded
   if grep -n 'kind delete cluster' "${root}/scripts/commands/cluster.sh" | grep -v -- '--name "$CLUSTER_NAME"' >/dev/null; then
     echo "ERROR: kind delete not bound to CLUSTER_NAME" >&2
     return 1
