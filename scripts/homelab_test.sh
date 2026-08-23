@@ -134,6 +134,40 @@ if 'FLUX_GIT_TAG' in source:
     assert '--tag-semver=' in source, \
         'Flux semver switch must set tag-semver'
 PY
+
+  # P1: Tailscale helpers must define every symbol the command layer calls,
+  # and the install ordering must be backup -> install -> restore (restore
+  # guarded against running after the Deployment exists).
+  python3 - "${root}/scripts/commands/tailscale.sh" "${root}/scripts/lib/tailscale.sh" <<'PY'
+import re
+import sys
+
+cmd, lib = open(sys.argv[1]).read(), open(sys.argv[2]).read()
+
+# Every tailscale:: symbol called from the command layer must be defined.
+calls = set(re.findall(r'tailscale::([a-z_0-9]+)', cmd))
+defs = set(re.findall(r'tailscale::([a-z_0-9]+)\(\)', lib))
+missing = calls - defs
+assert not missing, f'undefined Tailscale symbols: {sorted(missing)}'
+
+# Ordering: backup must appear before install_operator, and restore after it.
+cmd_main = cmd[cmd.index('main()'):]
+assert cmd_main.index('tailscale::backup_operator_identity') < \
+       cmd_main.index('tailscale::install_operator') < \
+       cmd_main.index('tailscale::restore_operator_identity'), \
+    'Tailscale install ordering must be backup -> install -> restore'
+
+# Restore must be guarded against running after the Deployment exists.
+assert 'Refusing to restore identity after the Tailscale operator has started' in lib, \
+    'restore_operator_identity must refuse to run after the Deployment exists'
+PY
+
+  # P1: lifecycle backup must be bound to the Tailscale backup root and
+  # destructive operations to CLUSTER_NAME.
+  grep -q 'kind delete cluster --name "$CLUSTER_NAME"' "${root}/scripts/commands/cluster.sh" || {
+    echo "ERROR: kind delete not bound to CLUSTER_NAME" >&2; return 1; }
+  grep -q 'TAILSCALE_BACKUP_DIR' "${root}/scripts/commands/cluster.sh" || {
+    echo "ERROR: cluster down must use TAILSCALE_BACKUP_DIR" >&2; return 1; }
 }
 
 main "$@"
