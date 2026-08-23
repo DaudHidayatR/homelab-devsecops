@@ -59,7 +59,7 @@ Flux bootstraps at `kubernetes/clusters/homelab` and reconciles ordered layers: 
 | Condition | Deployment behavior | Required inputs | What remains manual |
 |---|---|---|---|
 | `flux` CLI is installed, `flux check --pre` passes, and `GITHUB_USER` + `GITHUB_TOKEN` are set | Flux bootstraps from GitHub and reconciles `kubernetes/clusters/homelab` | `GITHUB_USER`, `GITHUB_TOKEN` | OpenBao init/unseal |
-| Flux bootstrap succeeds and `FLUX_GIT_TAG` is set | Flux GitRepository is patched to watch semver tags instead of branch `main` | `FLUX_GIT_TAG`, for example `>=0.0.0` | Push a semver tag to deploy new changes |
+| Flux bootstrap succeeds and `FLUX_GIT_TAG` is set | Flux GitRepository is recreated to watch semver tags instead of branch `main`; the ref carries only the semver selector | `FLUX_GIT_TAG`, for example `>=0.0.0` | Push a semver tag to deploy new changes |
 | Flux prerequisites are missing | Setup stops before applying desired state | working Flux and GitHub credentials | Resolve the reported prerequisite and rerun `make up` |
 | `TAILSCALE_CLIENT_ID` and `TAILSCALE_CLIENT_SECRET` are set | Tailscale namespace/OAuth Secret/operator are installed; OpenBao service is annotated; Serve config/watcher are applied | Tailscale OAuth client credentials | Tailnet Lock signing may still be required via `make tailscale-sign` |
 | Tailscale credentials are absent | Tailscale installation is skipped | none | Use port-forwarding or run `make tailscale` after credentials are configured |
