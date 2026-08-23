@@ -19,6 +19,7 @@ on:
       - "Makefile"
       - "**/Makefile"
       - "config.env.example"
+      - ".trivyignore"
   pull_request:
     branches: [main]
     paths:
@@ -35,6 +36,7 @@ on:
       - "Makefile"
       - "**/Makefile"
       - "config.env.example"
+      - ".trivyignore"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
