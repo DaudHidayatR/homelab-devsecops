@@ -12,7 +12,9 @@ metadata:
     tailscale.com/serve: "true"
 spec:
   ports:
-    - port: 80
+    - name: http
+      appProtocol: http
+      port: 80
       targetPort: 4466
   selector:
     k8s-app: headlamp
