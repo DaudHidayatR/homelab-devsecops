@@ -53,6 +53,39 @@ main() {
   rm -f "${sec_shim}"
   [[ "${agg_rc}" -eq 0 ]]
   [[ "${agg_out}" != *"unbound variable"* ]]
+  # Scanner root resolution regression: common.sh must resolve the repository
+  # root (not its parent) regardless of caller CWD and source its config.env.
+  # A stub podman on PATH satisfies common.sh's runtime detection without a
+  # real container runtime (the stub is never executed here).
+  local scan_root stub_bin out
+  scan_root="$(mktemp -d /tmp/scanner-root.XXXXXX)"
+  mkdir "${scan_root}/repo"
+  cp -R "${root}/scripts" "${scan_root}/repo/scripts"
+  cat >"${scan_root}/repo/config.env" <<CFG
+SCANNER_ROOT_TEST_MARKER=1
+TRIVY_IMAGE=test
+GRYPE_IMAGE=test
+GITLEAKS_IMAGE=test
+SEMGREP_IMAGE=test
+SYFT_IMAGE=test
+CHECKOV_IMAGE=test
+SEVERITY=HIGH,CRITICAL
+CFG
+  stub_bin="$(mktemp -d /tmp/stub-bin.XXXXXX)"
+  printf '#!/usr/bin/env bash
+exit 0
+' >"${stub_bin}/podman"
+  chmod +x "${stub_bin}/podman"
+  out="$(
+    cd /
+    export PATH="${stub_bin}:${PATH}"
+    trap 'printf "%s|%s" "${PROJECT_ROOT-}" "${SCANNER_ROOT_TEST_MARKER-}"' EXIT
+    source "${scan_root}/repo/scripts/lib/scanners/common.sh"
+  )"
+  rm -f "${stub_bin}/podman"; rmdir "${stub_bin}"
+  [[ "${out%%|*}" == "${scan_root}/repo" ]]
+  [[ "${out##*|}" == "1" ]]
+  chmod -R u+w "${scan_root}"; rm -rf "${scan_root}"
 }
 
 main "$@"
