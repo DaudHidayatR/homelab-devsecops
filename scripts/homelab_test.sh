@@ -134,6 +134,32 @@ if 'FLUX_GIT_TAG' in source:
     assert '--tag-semver=' in source, \
         'Flux semver switch must set tag-semver'
 PY
+
+  # OpenBao Raft persistence: the values file must keep the Raft storage
+  # path in lock-step with the PVC mount (/openbao/data) so Raft state lands
+  # on the PVC and survives pod replacement. Mirrors the CI gate.
+  python3 "${root}/scripts/check_openbao_raft_path.py" "${root}"
+
+  # P1: the OpenBao backup-and-recovery procedure in the README must stay
+  # explicit and actionable: prerequisites, a save command, an off-PVC
+  # storage location, a restore command, and validation. The procedure must
+  # use the final /openbao/data configuration, not the retired /vault/data.
+  python3 - "${root}/README.md" <<'PY'
+import sys
+
+text = open(sys.argv[1]).read()
+for needle in (
+    'bao operator raft snapshot save',
+    'openbao-raft.snap',
+    '/openbao/data',
+    'bao operator raft snapshot restore -force',
+    'bao operator raft list-peers',
+    'sealed: false',
+):
+    assert needle in text, f'README OpenBao recovery section missing: {needle!r}'
+assert '/vault/data' not in text, \
+    'README must not reference the retired /vault/data Raft path'
+PY
 }
 
 main "$@"

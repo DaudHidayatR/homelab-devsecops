@@ -105,7 +105,7 @@ scripts/homelab tailscale check
 
 The Tailscale operator stores its authoritative device identity in Kubernetes Secret `tailscale/operator`. The backup form is `.runtime-backups/tailscale/<timestamp>/operator.json`. Losing it during a cluster rebuild can register a duplicate device such as `tailscale-operator-1`.
 
-> **Tailscale only:** this procedure does not back up or restore OpenBao Raft data, its PVC, or secrets. Never pass an OpenBao snapshot or `.runtime-backups/openbao/` to `make recover`; see the OpenBao Raft procedure in the project [README](../README.md#openbao-integrated-storage-raft-recovery).
+> **Tailscale only:** this procedure does not back up or restore OpenBao Raft data, its PVC, or secrets. Never pass an OpenBao snapshot or `.runtime-backups/openbao/` to `make recover`; see the OpenBao Raft procedure in the project [README](../README.md#openbao-integrated-storage-raft-recovery), which includes snapshot creation, off-PVC storage, restore, and the pod-replacement persistence boundary. The live pod-replacement verification runbook is at [`kubernetes/scripts/openbao-raft-persistence-verification.md`](../kubernetes/scripts/openbao-raft-persistence-verification.md).
 
 Use this only when the kind cluster must be destroyed or has already been lost; use `make redeploy` for normal changes. It requires a validated `operator.json` if no live cluster exists, plus working kind, kubectl, Python, repository configuration, and Flux prerequisites.
 

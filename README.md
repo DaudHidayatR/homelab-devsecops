@@ -318,6 +318,27 @@ Use this process only to recover OpenBao secret data after its Raft PVC was lost
 - The source cluster's matching Shamir unseal key and an administrative token, stored securely outside the destroyed cluster.
 - A replacement OpenBao pod using integrated Raft storage, plus `kubectl` access. The repository does not yet create, validate, or restore Raft snapshots automatically.
 
+**Creating a Raft snapshot (backup)**
+
+The snapshot is the only portable OpenBao data backup; take it regularly and store it outside the pod and the PVC. `bao operator raft snapshot save` requires a live, unsealed cluster and an administrative token (the root token in `.runtime-backups/openbao/root-token.txt` works).
+
+```bash
+export OPENBAO_TOKEN="$(<.runtime-backups/openbao/root-token.txt)"
+install -d -m 0700 /secure/openbao-snapshots
+kubectl exec -n openbao openbao-0 -- \
+  env BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN="$OPENBAO_TOKEN" \
+  bao operator raft snapshot save /tmp/openbao-raft.snap
+kubectl cp openbao/openbao-0:/tmp/openbao-raft.snap /secure/openbao-snapshots/openbao-raft-$(date +%Y%m%d-%H%M%S).snap
+kubectl exec -n openbao openbao-0 -- rm -f /tmp/openbao-raft.snap
+unset OPENBAO_TOKEN
+```
+
+> **Cautions**
+> - The snapshot is **not** a seal/unseal backup. It restores OpenBao data only; the unseal key and an administrative token are restored separately and must be kept with the snapshot.
+> - Never store the snapshot only inside the pod (`/tmp`) or only on the PVC — both are destroyed with the cluster. Keep it on a host path or object store outside the cluster.
+> - Verify the snapshot is a real OpenBao Raft snapshot (`file openbao-raft-*.snap` shows a snapshot archive), not a Tailscale `operator.json` backup, before you rely on it or restore it.
+> - Restoring is destructive: `bao operator raft snapshot restore` replaces the current cluster state. Only restore into a fresh replacement, or you will lose writes made after the snapshot.
+
 `.runtime-backups/openbao/` contains bootstrap credentials and principal metadata. It is **not** a Raft data backup and cannot recreate stored secrets by itself. Likewise, the OpenBao PVC is live state, not a portable snapshot.
 
 **Ordered restore procedure**
@@ -363,7 +384,7 @@ Success is observable when status reports `initialized: true`, `sealed: false`, 
 ### Important notes
 
 - **Credential material is not data backup:** preserve the unseal key and administrative access material, but also take independent Raft snapshots if OpenBao data matters.
-- **Data persistence:** OpenBao uses Raft at `/openbao/data` on a PVC. Data survives pod restarts but is lost when the kind cluster is destroyed unless a separate Raft snapshot or tested volume backup exists.
+- **Data persistence:** OpenBao uses Raft at `/openbao/data` on a PVC. Data survives pod restarts and pod replacement (the StatefulSet recreates `openbao-0` on the same PVC), but is lost when the kind cluster is destroyed unless a separate Raft snapshot or tested volume backup exists. Take snapshots with `bao operator raft snapshot save` and store them outside the pod and PVC; see the [Raft recovery procedure](#openbao-integrated-storage-raft-recovery) and the [pod-replacement verification runbook](kubernetes/scripts/openbao-raft-persistence-verification.md).
 - **TLS termination:** OpenBao serves HTTP inside the cluster for this lab. Tailscale Serve terminates HTTPS for tailnet browser access.
 
 ## Tailscale Private Access (Recommended)
@@ -401,7 +422,7 @@ Once the operator is running, access admin UIs directly from any device on your 
 
 **Purpose and trigger:** preserve the Tailscale Kubernetes operator's device identity when the kind cluster must be destroyed or has already been lost. Use `make redeploy` instead for normal application changes.
 
-> **Recovery boundary:** `make recover` is Tailscale identity recovery, not full-cluster data recovery. It restores Kubernetes Secret `tailscale/operator`; it does not restore OpenBao's PVC, Raft data, secrets, or bootstrap credentials. Do not pass an OpenBao snapshot or `.runtime-backups/openbao/` to this command.
+> **Recovery boundary:** `make recover` is Tailscale identity recovery, not full-cluster data recovery. It restores Kubernetes Secret `tailscale/operator`; it does not restore OpenBao's PVC, Raft data, secrets, or bootstrap credentials. Do not pass an OpenBao snapshot or `.runtime-backups/openbao/` to this command. For OpenBao data recovery (pod replacement, PVC loss, or a destroyed cluster), use the [OpenBao Raft snapshot procedure](#openbao-integrated-storage-raft-recovery) — the PVC at `/openbao/data` survives pod replacement only, and a Raft snapshot stored outside the pod/PVC is the only portable backup.
 
 **Prerequisites and authoritative source**
 
