@@ -122,7 +122,7 @@ PY
 
   # P1: the Flux semver switch must be atomic (recreate with flux create,
   # not a bare kubectl patch that can leave a half-applied ref)
-  python3 - "${root}/scripts/lib/flux.sh" <<'PY'
+  python3 - "${root}/scripts/lib/flux.sh" "${root}/.github/workflows/IaC.yml" <<'PY'
 import sys
 
 source = open(sys.argv[1]).read()
@@ -133,6 +133,18 @@ if 'FLUX_GIT_TAG' in source:
         'Flux semver switch must recreate the source atomically'
     assert '--tag-semver=' in source, \
         'Flux semver switch must set tag-semver'
+
+# CI deploy job: the flux-system GitRepository must be switched to semver
+# by recreating it (flux create source git --tag-semver), never by a merge
+# patch that could leave a stale branch/tag/commit key next to semver.
+ci = open(sys.argv[2]).read()
+if 'kubectl patch gitrepository flux-system' in ci:
+    raise AssertionError('CI must not merge-patch GitRepository spec.ref')
+if 'flux create source git flux-system' in ci:
+    assert '--tag-semver=' in ci, \
+        'CI flux source recreation must set tag-semver'
+    assert 'kubectl delete gitrepository flux-system' in ci, \
+        'CI flux source recreation must replace the object atomically'
 PY
 
   # P1: the local Flux ref must carry exactly one selector. Semver mode
