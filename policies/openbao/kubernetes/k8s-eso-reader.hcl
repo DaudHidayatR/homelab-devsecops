@@ -1,6 +1,2 @@
 # External Secrets Operator reader policy.
-# Keep this path-enumerated. Add one explicit path per ExternalSecret consumer.
-
-path "secret/data/messaging/rabbitmq" {
-  capabilities = ["read"]
-}
+# Add explicit secret paths only when Flux manages an ExternalSecret consumer.

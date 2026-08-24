@@ -41,9 +41,8 @@ for POD in $PROXY_PODS; do
   echo ""
   echo "--- Checking $POD ---"
 
-  # Check current serve configuration. We still determine the desired backend
-  # before deciding to skip, because multi-port services like RabbitMQ expose
-  # AMQP first and the HTTP management UI second.
+  # Determine the desired backend before deciding whether the current Serve
+  # configuration can be reused.
   if ! SERVE_STATUS=$(kubectl exec -n tailscale "$POD" -c tailscale -- tailscale serve status 2>/dev/null); then
     SERVE_STATUS=""
   fi

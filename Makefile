@@ -60,8 +60,6 @@ validate-kustomize:
 	kubectl kustomize apps >/dev/null && echo "  ✓ apps valid"
 	@echo "Validating apps/demo overlay..."
 	kubectl kustomize apps/demo >/dev/null && echo "  ✓ apps/demo valid"
-	@echo "Validating apps/rabbitmq overlay..."
-	kubectl kustomize apps/rabbitmq >/dev/null && echo "  ✓ apps/rabbitmq valid"
 	@echo "Validating apps/headlamp overlay..."
 	kubectl kustomize apps/headlamp >/dev/null && echo "  ✓ apps/headlamp valid"
 	@echo "Validating infrastructure overlay..."

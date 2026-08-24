@@ -62,18 +62,6 @@ tailscale::install_if_configured() {
 setup::print_preflight_notes() {
   log::section "2. Istio deployment"
   log::info "Istio will be deployed via Flux HelmRelease (infrastructure/istio/)."
-
-  log::section "3. RabbitMQ credentials"
-  cat <<'MSG'
-RabbitMQ credentials are sourced from OpenBao via External Secrets Operator.
-The External Secrets Operator syncs secret/data/messaging/rabbitmq from OpenBao
-into the Kubernetes Secret messaging/rabbitmq-credentials.
-
-If this is a fresh cluster, after 'make up' completes, run:
-  bash scripts/openbao/bootstrap.sh
-  bash scripts/openbao/store-rabbitmq.sh
-  kubectl apply -k infrastructure/external-secrets/stores
-MSG
 }
 
 setup::print_summary() {
@@ -87,8 +75,6 @@ OpenBao post-setup required: ${OPENBAO_POST_SETUP_REQUIRED}
 If this is a fresh OpenBao install, run these after the OpenBao pod is ready:
   kubectl wait --for=condition=Ready pod/${OPENBAO_POD} -n ${OPENBAO_NS} --timeout=300s
   bash scripts/openbao/bootstrap.sh
-  bash scripts/openbao/store-rabbitmq.sh
-  kubectl apply -k infrastructure/external-secrets/stores
 MSG
 }
 

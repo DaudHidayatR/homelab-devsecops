@@ -3,7 +3,6 @@ kind: Kustomization
 
 resources:
   - demo.yaml
-  - messaging.yaml
   - openbao.yaml
   - istio-system.yaml
   - external-secrets.yaml

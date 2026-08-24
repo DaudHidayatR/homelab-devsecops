@@ -278,10 +278,6 @@ jobs:
           kubectl get pods -n demo -o wide || true
           kubectl describe pods -n demo || true
 
-          echo ""
-          echo "=== RabbitMQ Pods ==="
-          kubectl get pods -n messaging -o wide || true
-          kubectl describe pods -n messaging || true
 
           echo ""
           echo "=== Headlamp Pods ==="

@@ -6,7 +6,7 @@ This directory contains Tailscale operational helpers for the local kind DevSecO
 
 | Tier | Annotation | Access level | Recommended use |
 |---|---|---|---|
-| **Private** | `tailscale.com/expose: "true"` | Tailnet only | Headlamp, OpenBao, RabbitMQ admin, internal dashboards |
+| **Private** | `tailscale.com/expose: "true"` | Tailnet only | Headlamp, OpenBao, internal dashboards |
 | **Public** | `tailscale.com/funnel: "true"` | Internet-facing | Explicitly public demos/APIs only |
 
 Both tiers use the same operator. Keep admin tools private by default. Promoting a service to public access should be a deliberate reviewable change.
@@ -131,8 +131,7 @@ Once proxy DNS and Serve are ready, admin UIs are available from devices allowed
 
 | Service | Tailnet URL pattern |
 |---|---|
-| Headlamp | `https://kube-system-headlamp.<tailnet>.ts.net` |
-| RabbitMQ | `https://messaging-rabbitmq.<tailnet>.ts.net` |
+| Headlamp | `https://headlamp-headlamp.<tailnet>.ts.net` |
 | OpenBao | `https://openbao-openbao.<tailnet>.ts.net/ui/` |
 
 ## Security notes

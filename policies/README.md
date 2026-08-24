@@ -80,8 +80,6 @@ make up
 kubectl wait --for=condition=Ready pod/openbao-0 -n openbao --timeout=300s
 bash scripts/openbao/bootstrap.sh
 make openbao-policies
-bash scripts/openbao/store-rabbitmq.sh
-kubectl apply -k infrastructure/external-secrets/stores
 ```
 
 Use `make openbao-policies` after editing any registered policy file under `policies/openbao/` or after changing the explicit policy registry/Kubernetes mapping table.

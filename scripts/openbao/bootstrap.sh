@@ -297,6 +297,5 @@ echo "    - Create AppRole:    bash scripts/openbao/create-approle.sh ci-robot c
 echo "    - After verifying a non-root admin login, secure or revoke the root token manually."
 echo ""
 echo "  Next steps:"
-echo "    1. Run: bash scripts/openbao/store-rabbitmq.sh"
-echo "    2. Reconcile ExternalSecret resources: kubectl apply -k infrastructure/external-secrets/stores"
-echo "    3. Verify: kubectl get externalsecret -A"
+echo "    1. Reconcile Flux in order: flux reconcile kustomization infrastructure && flux reconcile kustomization apps"
+echo "    2. Verify: kubectl get clustersecretstore openbao"
