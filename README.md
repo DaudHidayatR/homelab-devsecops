@@ -242,6 +242,7 @@ This setup includes Headlamp to manage your cluster visually.
    ```
 3. Open [http://localhost:8080](http://localhost:8080) in your browser and paste the token to log in.
 
+
 ## Accessing OpenBao (Secret Management)
 OpenBao is deployed to the `openbao` namespace via the official Helm chart using **single-node raft** storage. The lab listener serves HTTP inside the cluster, while Tailscale Serve provides external HTTPS access.
 

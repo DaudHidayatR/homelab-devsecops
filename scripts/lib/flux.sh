@@ -44,6 +44,13 @@ flux::bootstrap_or_apply() {
     --path="${FLUX_CLUSTER_PATH}" \
     --personal
   log::success "Flux bootstrapped. Cluster state is now managed by GitOps."
+  log::info "Reconciling Flux infrastructure before applications."
+  flux reconcile kustomization infrastructure --with-source
+  flux reconcile kustomization apps
+  flux get kustomizations
+  kubectl wait --for=condition=Ready nodes --all --timeout=120s
+  kubectl get pods -A
+  log::success "Flux reconciliation and cluster workload checks completed."
   printf -v "${mode_var_name}" '%s' "Flux GitOps"
 
   if [[ -n "${FLUX_GIT_TAG:-}" ]]; then

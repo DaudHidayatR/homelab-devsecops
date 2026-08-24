@@ -20,31 +20,90 @@ cluster::context() {
   printf 'kind-%s\n' "${CLUSTER_NAME}"
 }
 
+cluster::find_container_provider() {
+  local __var_name="$1" container="$2"
+  local candidate id found="" found_id="" queried=false
+  local runtimes=(docker podman nerdctl)
+
+  if [[ -n "${KIND_EXPERIMENTAL_PROVIDER:-}" ]]; then
+    case "${KIND_EXPERIMENTAL_PROVIDER}" in
+      docker|podman|nerdctl) runtimes=("${KIND_EXPERIMENTAL_PROVIDER}") ;;
+      *) common::die "Unsupported KIND_EXPERIMENTAL_PROVIDER: '${KIND_EXPERIMENTAL_PROVIDER}'" ;;
+    esac
+  fi
+
+  for candidate in "${runtimes[@]}"; do
+    command -v "${candidate}" >/dev/null 2>&1 || continue
+    if id="$("${candidate}" ps -a --no-trunc --filter "name=^${container}$" --format '{{.ID}}' 2>/dev/null)"; then
+      queried=true
+      [[ -n "${id}" ]] || continue
+      if [[ -n "${found_id}" && "${id}" != "${found_id}" ]]; then
+        common::die "Kind control-plane container '${container}' resolves to different runtime objects (${found}, ${candidate}); set KIND_EXPERIMENTAL_PROVIDER explicitly."
+      fi
+      [[ -n "${found}" ]] || found="${candidate}"
+      found_id="${id}"
+    fi
+  done
+
+  [[ "${queried}" == true ]] || common::die "No supported Kind container runtime could be queried."
+  printf -v "${__var_name}" '%s' "${found}"
+}
+
 cluster::exists() {
   cluster::validate_name
-  kind get clusters | awk -v name="${CLUSTER_NAME}" '$0 == name {found=1} END {exit !found}'
+  local context clusters
+  context="$(cluster::context)"
+
+  if clusters="$(kind get clusters 2>/dev/null)"; then
+    if awk -v name="${CLUSTER_NAME}" '$0 == name {found=1} END {exit !found}' <<<"${clusters}"; then
+      return 0
+    fi
+    if kubectl config get-contexts "${context}" --no-headers >/dev/null 2>&1; then
+      common::die "Kind cluster '${CLUSTER_NAME}' is absent, but context '${context}' still exists. Remove or repair the stale context before creating a cluster."
+    fi
+    return 1
+  fi
+
+  local control_plane="${CLUSTER_NAME}-control-plane" runtime=""
+  local context_exists=false container_exists=false
+  cluster::find_container_provider runtime "${control_plane}"
+  kubectl config get-contexts "${context}" --no-headers >/dev/null 2>&1 && context_exists=true
+  [[ -z "${runtime}" ]] || container_exists=true
+
+  if [[ "${context_exists}" == false && "${container_exists}" == false ]]; then
+    return 1
+  fi
+  [[ "${context_exists}" == true ]] ||
+    common::die "Kind control-plane container '${control_plane}' exists but context '${context}' is absent; refusing to create a duplicate cluster."
+  [[ "${container_exists}" == true ]] ||
+    common::die "Context '${context}' exists but Kind control-plane container '${control_plane}' is absent; remove or repair the stale context."
+  kubectl --context "${context}" get --raw=/readyz >/dev/null 2>&1 ||
+    common::die "Kind enumeration failed and context '${context}' is unreachable; refusing to reuse or replace the cluster."
+  [[ "$(kubectl --context "${context}" get node "${control_plane}" -o name 2>/dev/null)" == "node/${control_plane}" ]] ||
+    common::die "Context '${context}' does not contain expected node '${control_plane}'; refusing to reuse it."
+  return 0
 }
 
 cluster::render_config() {
   local __var_name="$1"
   local source_config="$2"
-  local rendered_path
-  common::mktemp_var rendered_path /tmp/kind-cluster.XXXXXX.yaml
-  cp "${source_config}" "${rendered_path}"
+  local rendered_config_path
+  common::mktemp_var rendered_config_path /tmp/kind-cluster.XXXXXX.yaml
+  cp "${source_config}" "${rendered_config_path}"
 
   if [[ -n "${TAILSCALE_VPS_IP:-}" ]]; then
-    sed -i "s/TAILSCALE_VPS_IP_PLACEHOLDER/${TAILSCALE_VPS_IP}/g" "${rendered_path}"
+    sed -i "s/TAILSCALE_VPS_IP_PLACEHOLDER/${TAILSCALE_VPS_IP}/g" "${rendered_config_path}"
   else
-    sed -i '/TAILSCALE_VPS_IP_PLACEHOLDER/d' "${rendered_path}"
+    sed -i '/TAILSCALE_VPS_IP_PLACEHOLDER/d' "${rendered_config_path}"
   fi
 
   if [[ -n "${TAILSCALE_VPS_HOSTNAME:-}" ]]; then
-    sed -i "s/TAILSCALE_VPS_HOSTNAME_PLACEHOLDER/${TAILSCALE_VPS_HOSTNAME}/g" "${rendered_path}"
+    sed -i "s/TAILSCALE_VPS_HOSTNAME_PLACEHOLDER/${TAILSCALE_VPS_HOSTNAME}/g" "${rendered_config_path}"
   else
-    sed -i '/TAILSCALE_VPS_HOSTNAME_PLACEHOLDER/d' "${rendered_path}"
+    sed -i '/TAILSCALE_VPS_HOSTNAME_PLACEHOLDER/d' "${rendered_config_path}"
   fi
 
-  printf -v "${__var_name}" '%s' "${rendered_path}"
+  printf -v "${__var_name}" '%s' "${rendered_config_path}"
 }
 
 cluster::ensure_kind() {
