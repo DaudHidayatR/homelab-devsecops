@@ -13,7 +13,18 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/kubernetes.sh"
 
 : "${FLUX_GITHUB_BRANCH:=main}"
 : "${FLUX_CLUSTER_PATH:=./kubernetes/clusters/homelab}"
+: "${FLUX_BOOTSTRAP_MODE:=auto}"
 
+flux::reconcile() {
+  log::info "Reconciling Flux infrastructure before applications."
+  flux reconcile source git flux-system
+  flux reconcile kustomization infrastructure --with-source
+  flux reconcile kustomization apps
+  flux get kustomizations
+  kubectl wait --for=condition=Ready nodes --all --timeout=120s
+  kubectl get pods -A
+  log::success "Flux reconciliation and cluster workload checks completed."
+}
 
 flux::bootstrap_or_apply() {
   local mode_var_name="$1"
@@ -31,27 +42,52 @@ flux::bootstrap_or_apply() {
     common::die "Flux preflight failed. Resolve the reported prerequisites; manifests will not be applied directly."
   fi
 
-  [[ -n "${FLUX_GITHUB_REPOSITORY:-}" ]] || common::die "FLUX_GITHUB_REPOSITORY is required for Flux bootstrap."
-  if [[ -z "${GITHUB_TOKEN:-}" || -z "${GITHUB_USER:-}" ]]; then
-    common::die "GITHUB_TOKEN and GITHUB_USER must be provided via the environment for Flux bootstrap; manifests will not be applied directly."
-  fi
+  case "${FLUX_BOOTSTRAP_MODE}" in
+    auto|github) ;;
+    *) common::die "FLUX_BOOTSTRAP_MODE must be 'auto' or 'github': '${FLUX_BOOTSTRAP_MODE}'" ;;
+  esac
 
-  log::info "Bootstrapping Flux from GitHub repository ${GITHUB_USER}/${FLUX_GITHUB_REPOSITORY}."
-  flux bootstrap github \
-    --owner="${GITHUB_USER}" \
-    --repository="${FLUX_GITHUB_REPOSITORY}" \
-    --branch="${FLUX_GITHUB_BRANCH}" \
-    --path="${FLUX_CLUSTER_PATH}" \
-    --personal
-  log::success "Flux bootstrapped. Cluster state is now managed by GitOps."
-  log::info "Reconciling Flux infrastructure before applications."
-  flux reconcile kustomization infrastructure --with-source
-  flux reconcile kustomization apps
-  flux get kustomizations
-  kubectl wait --for=condition=Ready nodes --all --timeout=120s
-  kubectl get pods -A
-  log::success "Flux reconciliation and cluster workload checks completed."
-  printf -v "${mode_var_name}" '%s' "Flux GitOps"
+  if kubectl get deployment source-controller -n flux-system >/dev/null 2>&1; then
+    log::info "Flux is already installed; skipping GitHub bootstrap."
+    flux::reconcile
+    printf -v "${mode_var_name}" '%s' "Flux GitOps"
+  elif [[ -f "${PROJECT_ROOT}/${FLUX_CLUSTER_PATH#./}/flux-system/kustomization.yaml" ]]; then
+    log::info "Installing Flux from committed bootstrap manifests."
+    kubectl apply -k "${PROJECT_ROOT}/${FLUX_CLUSTER_PATH#./}/flux-system"
+    kubectl rollout status deployment/source-controller -n flux-system --timeout=300s
+    flux::reconcile
+    printf -v "${mode_var_name}" '%s' "Flux GitOps"
+  elif [[ "${FLUX_BOOTSTRAP_MODE}" == github ]]; then
+    [[ -n "${FLUX_GITHUB_REPOSITORY:-}" ]] || common::die "FLUX_GITHUB_REPOSITORY is required for Flux bootstrap."
+    if [[ -z "${GITHUB_TOKEN:-}" || -z "${GITHUB_USER:-}" ]]; then
+      common::die "GITHUB_TOKEN and GITHUB_USER are required when FLUX_BOOTSTRAP_MODE=github."
+    fi
+
+    if ! git ls-remote --exit-code --heads "https://github.com/${GITHUB_USER}/${FLUX_GITHUB_REPOSITORY}.git" "refs/heads/${FLUX_GITHUB_BRANCH}" >/dev/null 2>&1; then
+      [[ "${FLUX_GITHUB_BRANCH}" =~ ^[A-Za-z0-9._/-]+$ ]] || common::die "Invalid FLUX_GITHUB_BRANCH: '${FLUX_GITHUB_BRANCH}'"
+      command -v gh >/dev/null 2>&1 || common::die "GitHub CLI is required to create missing bootstrap branch '${FLUX_GITHUB_BRANCH}'."
+      log::info "Creating missing GitHub branch '${FLUX_GITHUB_BRANCH}' from main."
+      GITHUB_TOKEN="${GITHUB_TOKEN}" gh api \
+        --method POST \
+        "repos/${GITHUB_USER}/${FLUX_GITHUB_REPOSITORY}/git/refs" \
+        -f "ref=refs/heads/${FLUX_GITHUB_BRANCH}" \
+        -f "sha=$(git ls-remote "https://github.com/${GITHUB_USER}/${FLUX_GITHUB_REPOSITORY}.git" refs/heads/main | cut -f1)" \
+        >/dev/null
+    fi
+
+    log::info "Bootstrapping Flux from GitHub repository ${GITHUB_USER}/${FLUX_GITHUB_REPOSITORY}."
+    flux bootstrap github \
+      --owner="${GITHUB_USER}" \
+      --repository="${FLUX_GITHUB_REPOSITORY}" \
+      --branch="${FLUX_GITHUB_BRANCH}" \
+      --path="${FLUX_CLUSTER_PATH}" \
+      --personal
+    log::success "Flux bootstrapped. Cluster state is now managed by GitOps."
+    flux::reconcile
+    printf -v "${mode_var_name}" '%s' "Flux GitOps"
+  else
+    common::die "Flux bootstrap manifests are not committed at '${FLUX_CLUSTER_PATH}/flux-system'. Protected branch flow: run 'flux bootstrap github --owner=${GITHUB_USER:-OWNER} --repository=${FLUX_GITHUB_REPOSITORY:-REPOSITORY} --branch=flux-bootstrap --path=${FLUX_CLUSTER_PATH} --personal', then merge that branch through a signed pull request and rerun make up. Set FLUX_BOOTSTRAP_MODE=github only when direct pushes are allowed."
+  fi
 
   if [[ -n "${FLUX_GIT_TAG:-}" ]]; then
     log::info "Switching Flux to semver-based deployment (range=${FLUX_GIT_TAG})."

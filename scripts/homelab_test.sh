@@ -12,6 +12,20 @@ kind() {
   esac
 }
 
+kubectl() {
+  case "$1 $2" in
+    "config view")
+      if [[ "$4" == *'.contexts['* ]]; then
+        printf 'kind-%s' "${CLUSTER_NAME}"
+      else
+        printf 'https://0.0.0.0:6443'
+      fi
+      ;;
+    "config set-cluster") KUBECONFIG_SERVER_ARG="$4" ;;
+    *) return 1 ;;
+  esac
+}
+
 main() {
   local root output status
   root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -33,12 +47,13 @@ main() {
   # shellcheck source=scripts/lib/cluster.sh
   source "${root}/scripts/lib/cluster.sh"
   trap common::cleanup EXIT
-  local source_config KIND_CONFIG
+  local source_config KIND_CONFIG KUBECONFIG_SERVER_ARG
   common::mktemp_var source_config /tmp/kind-source.XXXXXX.yaml
   printf 'kind: Cluster\n' >"${source_config}"
   cluster::ensure_kind "${source_config}"
   [[ "${KIND_CONFIG}" != "${source_config}" ]]
   cmp -s "${source_config}" "${KIND_CONFIG}"
+  [[ "${KUBECONFIG_SERVER_ARG}" == "--server=https://127.0.0.1:6443" ]]
 
   # SCAN_STATUS regression: the aggregate security-scan path must always
   # have SCAN_STATUS initialized under set -u (clean aggregation exits 0).
@@ -172,6 +187,21 @@ assert '--type merge' not in source, \
 bootstrap_args = source[source.index('flux bootstrap github'):source.index('--personal')]
 assert '--branch=' in bootstrap_args, \
     'Flux bootstrap must keep its single branch selector'
+
+assert 'FLUX_BOOTSTRAP_MODE:=auto' in source, \
+    'Flux must default to the protected-branch-safe auto mode'
+assert source.index('kubectl get deployment source-controller') < source.index('flux bootstrap github'), \
+    'Flux must reuse an existing installation before considering GitHub bootstrap'
+assert 'kubectl apply -k' in source and '/flux-system' in source, \
+    'Flux must install committed bootstrap manifests without a GitHub push'
+assert 'elif [[ "${FLUX_BOOTSTRAP_MODE}" == github ]]' in source, \
+    'Direct GitHub bootstrap must require explicit opt-in'
+assert 'git ls-remote --exit-code --heads' in source, \
+    'GitHub bootstrap must check whether its target branch exists'
+assert 'repos/${GITHUB_USER}/${FLUX_GITHUB_REPOSITORY}/git/refs' in source, \
+    'GitHub bootstrap must create a missing target branch before Flux clones it'
+assert source.index('git/refs') < source.index('flux bootstrap github', source.index('elif [[ "${FLUX_BOOTSTRAP_MODE}" == github ]]')), \
+    'A missing bootstrap branch must be created before Flux bootstrap runs'
 PY
 
   # P1: Tailscale helpers must define every symbol the command layer calls,

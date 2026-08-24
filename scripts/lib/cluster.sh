@@ -106,6 +106,17 @@ cluster::render_config() {
   printf -v "${__var_name}" '%s' "${rendered_config_path}"
 }
 
+cluster::repair_kubeconfig_server() {
+  local context kubeconfig_cluster server
+  context="$(cluster::context)"
+  kubeconfig_cluster="$(kubectl config view -o "jsonpath={.contexts[?(@.name=='${context}')].context.cluster}")"
+  server="$(kubectl config view -o "jsonpath={.clusters[?(@.name=='${kubeconfig_cluster}')].cluster.server}")"
+  if [[ "${server}" == https://0.0.0.0:* ]]; then
+    kubectl config set-cluster "${kubeconfig_cluster}" --server="${server/0.0.0.0/127.0.0.1}" >/dev/null
+    log::info "Repaired kubeconfig API address ${server} to use 127.0.0.1."
+  fi
+}
+
 cluster::ensure_kind() {
   local source_config="$1"
   cluster::validate_name
@@ -114,9 +125,11 @@ cluster::ensure_kind() {
   if cluster::exists; then
     log::info "Kind cluster '${CLUSTER_NAME}' already exists; skipping creation."
     kubectl config use-context "$(cluster::context)" >/dev/null 2>&1 || true
+    cluster::repair_kubeconfig_server
     return 0
   fi
 
   cluster::render_config rendered_config "${source_config}"
   kind create cluster --name "${CLUSTER_NAME}" --config "${rendered_config}"
+  cluster::repair_kubeconfig_server
 }
