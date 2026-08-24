@@ -212,6 +212,12 @@ assert 'repos/${GITHUB_USER}/${FLUX_GITHUB_REPOSITORY}/git/refs' in source, \
     'GitHub bootstrap must create a missing target branch before Flux clones it'
 assert source.index('git/refs') < source.index('flux bootstrap github', source.index('elif [[ "${FLUX_BOOTSTRAP_MODE}" == github ]]')), \
     'A missing bootstrap branch must be created before Flux bootstrap runs'
+
+sync = open(sys.argv[1].replace('scripts/lib/flux.sh', 'kubernetes/clusters/homelab/flux-system/gotk-sync.yaml')).read()
+assert 'url: https://github.com/' in sync, \
+    'Committed Flux sync must use reconstructible public HTTPS access'
+assert 'secretRef:' not in sync, \
+    'Committed public Flux sync must not require an uncommitted deploy-key secret'
 PY
 
   # P1: Tailscale helpers must define every symbol the command layer calls,

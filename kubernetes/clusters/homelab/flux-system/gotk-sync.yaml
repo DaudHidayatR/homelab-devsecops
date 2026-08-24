@@ -9,9 +9,7 @@ spec:
   interval: 1m0s
   ref:
     branch: flux-bootstrap
-  secretRef:
-    name: flux-system
-  url: ssh://git@github.com/DaudHidayatR/homelab-devsecops
+  url: https://github.com/DaudHidayatR/homelab-devsecops
 ---
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization

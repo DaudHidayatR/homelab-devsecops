@@ -207,11 +207,18 @@ cluster::validate_name
 common::require_commands kind kubectl python3
 
 if cluster::exists; then
-  result_file="$(mktemp)"
-  trap 'rm -f "${result_file}"' EXIT
-  TAILSCALE_BACKUP_RESULT_FILE="${result_file}" command_cluster_down
-  [[ -s "${result_file}" ]] || common::die "Cluster destruction produced no Tailscale identity backup; refusing recovery."
-  BACKUP_DIR="$(cat "${result_file}")"
+  if k8s::secret_exists "${TAILSCALE_NAMESPACE}" "${TAILSCALE_OPERATOR_SECRET}"; then
+    result_file="$(mktemp)"
+    trap 'rm -f "${result_file}"' EXIT
+    TAILSCALE_BACKUP_RESULT_FILE="${result_file}" command_cluster_down
+    [[ -s "${result_file}" ]] || common::die "Cluster destruction produced no Tailscale identity backup; refusing recovery."
+    BACKUP_DIR="$(cat "${result_file}")"
+  else
+    [[ -n "${BACKUP_DIR}" ]] || common::die "The live cluster has no Tailscale operator identity. Usage: $0 <validated-backup-directory>"
+    tailscale::validate_identity_file "${BACKUP_DIR}/operator.json"
+    log::warn "The live cluster has no Tailscale operator identity; rebuilding from the supplied backup."
+    kind delete cluster --name "$CLUSTER_NAME"
+  fi
 else
   [[ -n "${BACKUP_DIR}" ]] || common::die "No cluster exists. Usage: $0 <validated-backup-directory>"
 fi

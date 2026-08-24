@@ -64,8 +64,8 @@ import json, sys
 d = json.load(open(sys.argv[1]))
 data = d.get('data') or {}
 for key in ('client_id', 'client_secret'):
-    if key not in data:
-        raise SystemExit(f'operator-oauth backup lacks required key: {key}')
+    if not data.get(key):
+        raise SystemExit(f'operator-oauth backup lacks non-empty key: {key}')
 PY
 }
 
