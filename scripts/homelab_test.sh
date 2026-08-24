@@ -106,6 +106,12 @@ import re
 import sys
 
 source = open(sys.argv[1]).read()
+up = source[source.index('command_cluster_up()'):source.index('DEPLOYMENT_MODE="not-started"')]
+assert up.index('ENV_GITHUB_TOKEN="${GITHUB_TOKEN-}"') < up.index('common::load_config'), \
+    'cluster up must capture an exported GITHUB_TOKEN before config.env is sourced'
+assert up.index('common::load_config') < up.index('GITHUB_TOKEN="${ENV_GITHUB_TOKEN}"'), \
+    'cluster up must restore the exported GITHUB_TOKEN after config.env is sourced'
+
 wait = re.search(r'kubectl wait --for=condition=Ready \\\n((?:\s+kustomization/[^\n]+\\\n)+)\s+-n flux-system --timeout=300s', source)
 assert wait
 assert re.findall(r'kustomization/([\w-]+)', wait.group(1)) == [
@@ -192,6 +198,10 @@ assert 'FLUX_BOOTSTRAP_MODE:=auto' in source, \
     'Flux must default to the protected-branch-safe auto mode'
 assert source.index('kubectl get deployment source-controller') < source.index('flux bootstrap github'), \
     'Flux must reuse an existing installation before considering GitHub bootstrap'
+assert 'flux reconcile kustomization flux-system --with-source' in source, \
+    'Flux must reconcile the root sync Kustomization that creates the project graph'
+assert 'flux reconcile kustomization infrastructure' not in source, \
+    'Flux must not reconcile the nonexistent legacy infrastructure Kustomization'
 assert 'kubectl apply -k' in source and '/flux-system' in source, \
     'Flux must install committed bootstrap manifests without a GitHub push'
 assert 'elif [[ "${FLUX_BOOTSTRAP_MODE}" == github ]]' in source, \

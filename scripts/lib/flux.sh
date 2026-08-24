@@ -18,8 +18,7 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/kubernetes.sh"
 flux::reconcile() {
   log::info "Reconciling Flux infrastructure before applications."
   flux reconcile source git flux-system
-  flux reconcile kustomization infrastructure --with-source
-  flux reconcile kustomization apps
+  flux reconcile kustomization flux-system --with-source
   flux get kustomizations
   kubectl wait --for=condition=Ready nodes --all --timeout=120s
   kubectl get pods -A

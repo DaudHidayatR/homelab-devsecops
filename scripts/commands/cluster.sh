@@ -12,9 +12,9 @@ PROJECT_ROOT="$ROOT_DIR"
 
 # shellcheck source=scripts/lib/common.sh
 source "${PROJECT_ROOT}/scripts/lib/common.sh"
-COMMON_REQUIRE_CONFIG=true common::load_config "${PROJECT_ROOT}/config.env"
 ENV_GITHUB_USER="${GITHUB_USER-}"
 ENV_GITHUB_TOKEN="${GITHUB_TOKEN-}"
+COMMON_REQUIRE_CONFIG=true common::load_config "${PROJECT_ROOT}/config.env"
 [[ -z "${ENV_GITHUB_USER}" ]] || GITHUB_USER="${ENV_GITHUB_USER}"
 [[ -z "${ENV_GITHUB_TOKEN}" ]] || GITHUB_TOKEN="${ENV_GITHUB_TOKEN}"
 unset ENV_GITHUB_USER ENV_GITHUB_TOKEN
