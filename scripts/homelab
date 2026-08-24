@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+usage() {
+  cat <<'USAGE'
+Usage: scripts/homelab <domain> <command> [arguments]
+
+Domains and commands:
+  cluster     up | down | recover | info
+  openbao     bootstrap | policies | status | create-user | create-approle
+  tailscale   install | reset | sign | check | configure-serve | restore
+  security    scan
+USAGE
+}
+
+[[ $# -ge 2 ]] || { usage >&2; exit 2; }
+domain="$1"
+command="$2"
+shift 2
+case "$domain" in
+  cluster|openbao|tailscale|security)
+    exec "${SCRIPT_DIR}/commands/${domain}.sh" "$command" "$@"
+    ;;
+  *) usage >&2; exit 2 ;;
+esac

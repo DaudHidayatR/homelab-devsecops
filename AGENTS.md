@@ -13,8 +13,8 @@
 - Never commit credentials or interpolate secrets into shell source. Pass secret data through environment, argv, or stdin.
 - Preserve OpenBao CLI arguments through `openbao::exec`; do not add remote `sh -c` command strings.
 - Before deleting or rebuilding a cluster, validate and atomically back up the Tailscale operator identity. Restore it before starting the operator.
-- Git-history cleanup rewrites shared history. Rotate credentials first and use only `scripts/git/auto-purge-secret.sh` with reviewed configuration.
+- Git-history cleanup is unsupported until a reviewed implementation is added. Rotate or revoke exposed credentials before any history rewrite.
 
 ## Knowledge sources
 - `raw/` is immutable source material; never modify it.
-- `wiki/` is maintained knowledge. Keep `wiki/index.md` as the catalog, `wiki/log.md` append-only, and claims traceable to source files.
+- Compiled knowledge belongs in `document-project/web-documentasi/devsecops-homelab/template-wiki`; operational truth remains in this repository’s READMEs, manifests, scripts, and workflows. Keep claims traceable through the destination vault’s `Raw/Sources/` layer.

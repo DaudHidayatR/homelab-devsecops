@@ -14,6 +14,12 @@ on:
       - "kustomization.*"
       - "Dockerfile*"
       - ".github/workflows/**"
+      - "**.hcl"
+      - "**.rego"
+      - "Makefile"
+      - "**/Makefile"
+      - "config.env.example"
+      - ".trivyignore"
   pull_request:
     branches: [main]
     paths:
@@ -25,6 +31,12 @@ on:
       - "kustomization.*"
       - "Dockerfile*"
       - ".github/workflows/**"
+      - "**.hcl"
+      - "**.rego"
+      - "Makefile"
+      - "**/Makefile"
+      - "config.env.example"
+      - ".trivyignore"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -79,6 +91,8 @@ jobs:
         run: |
           tflint --init
           tflint -f compact
+      - name: OpenBao Raft path vs PVC mount
+        run: python3 scripts/check_openbao_raft_path.py
 
   secrets:
     name: Secret Detection
@@ -94,6 +108,9 @@ jobs:
           docker run --rm -v "$PWD:/src" "$GITLEAKS_IMAGE" \
             detect --source /src --report-format json \
             --report-path /src/gitleaks-report.json -v
+      - name: Fail on GitLeaks findings
+        if: always()
+        run: python3 .github/scripts/fail-on-gitleaks.py gitleaks-report.json
       - name: Validate report
         run: |
           if [ ! -s "gitleaks-report.json" ]; then
@@ -129,7 +146,13 @@ jobs:
         run: |
           missing=0
           for f in trivy-config-report.sarif checkov-report.sarif; do
-            if [ ! -s "$f" ]; then
+            if [ -d "$f" ]; then
+              found=$(find "$f" -maxdepth 1 -name '*.sarif' -o -maxdepth 1 -name 'results_*.json' | head -1)
+              if [ -z "$found" ]; then
+                echo "ERROR: no SARIF output inside $f"
+                missing=$((missing + 1))
+              fi
+            elif [ ! -s "$f" ]; then
               echo "ERROR: $f is missing or empty"
               missing=$((missing + 1))
             fi
@@ -137,6 +160,11 @@ jobs:
           if [ "$missing" -gt 0 ]; then
             exit 1
           fi
+      - name: Fail on HIGH/CRITICAL misconfigurations
+        if: always()
+        run: |
+          python3 .github/scripts/fail-on-sarif.py \
+            trivy-config-report.sarif checkov-report.sarif
       - uses: github/codeql-action/upload-sarif@v4
         continue-on-error: true
         if: always()
@@ -167,7 +195,15 @@ jobs:
         run: |
           mkdir -p rendered-manifests
           rendered=0
-          for overlay in clusters/kind infrastructure apps .; do
+          for overlay in \
+            kubernetes/clusters/homelab/bootstrap \
+            kubernetes/clusters/homelab/cluster-resources \
+            kubernetes/clusters/homelab/platform \
+            kubernetes/clusters/homelab/cluster-policies \
+            kubernetes/clusters/homelab/operations \
+            kubernetes/clusters/homelab/apps \
+            kubernetes/clusters/homelab/flux \
+            kubernetes/clusters/homelab; do
             if [ -f "$overlay/kustomization.yaml" ] || \
                [ -f "$overlay/kustomization.yml" ] || \
                [ -f "$overlay/Kustomization" ]; then
@@ -184,16 +220,19 @@ jobs:
             echo "has_manifests=false" >> "$GITHUB_OUTPUT"
           fi
       - name: Conftest
-        if: steps.kustomize.outputs.has_manifests == 'true' && hashFiles('policies/') != ''
-        continue-on-error: true
+        if: >-
+          steps.kustomize.outputs.has_manifests == 'true' &&
+          hashFiles('kubernetes/clusters/homelab/cluster-policies/**/*.rego') != ''
         run: |
-          docker run --rm -v "$PWD:/src" -w /src "$CONFTEST_IMAGE" test --policy /src/policies/ /src/rendered-manifests/
+          docker run --rm -v "$PWD:/src" -w /src "$CONFTEST_IMAGE" test \
+            --policy /src/kubernetes/clusters/homelab/cluster-policies/ /src/rendered-manifests/
       - name: Kyverno policy check
-        if: steps.kustomize.outputs.has_manifests == 'true' && hashFiles('policies/') != ''
-        continue-on-error: true
+        if: >-
+          steps.kustomize.outputs.has_manifests == 'true' &&
+          hashFiles('kubernetes/clusters/homelab/cluster-policies/**/*.yaml') != ''
         run: |
           docker run --rm -v "$PWD:/src" -w /src "$KYVERNO_IMAGE" \
-            apply /src/policies/ --resource /src/rendered-manifests.yaml || true
+            apply /src/kubernetes/clusters/homelab/cluster-policies/ --resource /src/rendered-manifests.yaml
 
   deploy:
     name: Deploy (Flux reconcile via Tailscale)
@@ -226,7 +265,9 @@ jobs:
       - name: Verify cluster connectivity
         run: kubectl cluster-info
 
-      - name: Install Flux controllers if missing
+      - name: Install Flux controllers and source
+        env:
+          REPOSITORY_URL: https://github.com/${{ github.repository }}.git
         run: |
           if ! kubectl get crd gitrepositories.source.toolkit.fluxcd.io >/dev/null 2>&1; then
             echo "Flux CRDs not found. Installing Flux controllers..."
@@ -238,26 +279,52 @@ jobs:
           kubectl wait --for=condition=Available deployment/kustomize-controller -n flux-system --timeout=180s
           kubectl wait --for=condition=Available deployment/helm-controller -n flux-system --timeout=180s
 
-      - name: Configure Flux Git source for semver tags
-        run: |
-          # Switch Flux from branch-based to semver-based.
-          # The source controller will only reconcile when new semver tags appear.
-          # Pushes to main are IGNORED by Flux -- only v* tags trigger deployment.
-          kubectl patch gitrepository flux-system -n flux-system \
-            --type merge -p '{"spec":{"ref":{"semver":">=0.0.0"},"interval":"1m"}}'
-          echo "Flux now watches semver tags (>=0.0.0) -- main pushes do NOT trigger deploys."
-          kubectl get gitrepository flux-system -n flux-system -o yaml
+          if kubectl get gitrepository flux-system -n flux-system >/dev/null 2>&1; then
+            # Replace the existing source atomically: recreating (rather than
+            # merge-patching spec.ref) guarantees the ref object carries only
+            # the semver selector, never a stale branch/tag/commit key.
+            kubectl delete gitrepository flux-system -n flux-system --ignore-not-found
+            flux create source git flux-system \
+              --url="${REPOSITORY_URL}" \
+              --tag-semver=">=0.0.0" \
+              --interval=1m \
+              --namespace=flux-system
+          else
+            kubectl apply -f - <<EOF
+          apiVersion: source.toolkit.fluxcd.io/v1
+          kind: GitRepository
+          metadata:
+            name: flux-system
+            namespace: flux-system
+          spec:
+            interval: 1m
+            url: ${REPOSITORY_URL}
+            ref:
+              semver: ">=0.0.0"
+          EOF
+          fi
+          kubectl wait gitrepository/flux-system -n flux-system --for=condition=Ready --timeout=5m
 
-          kubectl apply -k clusters/kind
+          # The repository is public, so the source is fetched unauthenticated
+          # over HTTPS. Remove any stale token secret a previous deploy
+          # persisted; the source above no longer references it (created
+          # without secretRef), so no flux-system secret is required.
+          if kubectl get secret flux-system -n flux-system >/dev/null 2>&1 && \
+             ! kubectl get gitrepository flux-system -n flux-system \
+               -o jsonpath='{.spec.secretRef.name}' 2>/dev/null | grep -qx flux-system; then
+            kubectl delete secret flux-system -n flux-system --ignore-not-found
+          fi
+
+          kubectl apply -k kubernetes/clusters/homelab
 
       - name: Reconcile Flux sources
         run: flux reconcile source git flux-system --timeout=5m
 
-      - name: Reconcile infrastructure
-        run: flux reconcile kustomization infrastructure --timeout=10m
-
-      - name: Reconcile apps
-        run: flux reconcile kustomization apps --timeout=10m
+      - name: Reconcile layered cluster state
+        run: |
+          for layer in bootstrap cluster-resources platform openbao-config cluster-policies operations apps; do
+            flux reconcile kustomization "$layer" --timeout=10m
+          done
 
       - name: Debug apps reconciliation failure
         if: failure()

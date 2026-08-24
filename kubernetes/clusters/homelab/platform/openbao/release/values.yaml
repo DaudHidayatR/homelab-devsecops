@@ -1,0 +1,104 @@
+# OpenBao Helm chart values — single-node raft (dev/lab)
+# NOTE: This file is the Flux HelmRelease values source.
+# Keep OpenBao chart settings here to avoid values drift.
+# Fresh install only, no migration
+# Chart repo: openbao/openbao
+
+global:
+  # OpenBao serves plain HTTP inside the cluster; Tailscale Serve terminates
+  # HTTPS for external tailnet access. Keep probes and bootstrap scripts on
+  # HTTP to avoid kubelet HTTPS-to-HTTP probe failures.
+  tlsDisable: true
+
+injector:
+  enabled: false
+
+csi:
+  enabled: false
+
+server:
+  image:
+    tag: "2.5.2"
+
+  service:
+    # NOTE: Do NOT add tailscale.com/expose or tailscale.com/serve here!
+    # The OpenBao Helm chart applies server.service.annotations to ALL
+    # services it creates (openbao, openbao-active, openbao-standby,
+    # openbao-internal, openbao-ui), causing Tailscale operator to create
+    # duplicate proxy pods for each. Instead, annotate only the main
+    # 'openbao' Service manually after deployment:
+    #   kubectl annotate svc openbao -n openbao tailscale.com/expose=true tailscale.com/serve=true
+    annotations: {}
+
+  updateStrategyType: RollingUpdate
+
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "100m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+
+  ingress:
+    enabled: false
+
+  readinessProbe:
+    enabled: true
+    path: "/v1/sys/health?standbyok=true&sealedcode=204&uninitcode=204"
+    port: 8200
+    scheme: HTTP
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    failureThreshold: 12
+    timeoutSeconds: 3
+
+  livenessProbe:
+    enabled: true
+    path: "/v1/sys/health?standbyok=true&sealedcode=204&uninitcode=204"
+    port: 8200
+    scheme: HTTP
+    initialDelaySeconds: 60
+    periodSeconds: 10
+    failureThreshold: 6
+    timeoutSeconds: 5
+
+  dataStorage:
+    enabled: true
+    size: 1Gi
+    accessMode: ReadWriteOnce
+
+  auditStorage:
+    enabled: false
+
+  standalone:
+    enabled: false
+
+  # TLS cert is generated for future HTTPS enablement, but not mounted while
+  # the lab listener runs with tlsDisable=true.
+
+  ha:
+    enabled: true
+    replicas: 1
+    raft:
+      enabled: true
+      setNodeId: true
+      # Raft storage config. The OpenBao chart renders server.ha.raft.config
+      # (not server.ha.config) when server.ha.raft.enabled=true, and mounts
+      # server.dataStorage at /openbao/data by default. Keep the Raft path in
+      # lock-step with that mount so Raft state lands on the PVC.
+      config: |
+        ui = true
+
+        listener "tcp" {
+          tls_disable = 1
+          address = "[::]:8200"
+          cluster_address = "[::]:8201"
+        }
+
+        storage "raft" {
+          path = "/openbao/data"
+        }
+
+ui:
+  enabled: true

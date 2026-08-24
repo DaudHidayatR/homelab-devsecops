@@ -12,7 +12,7 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/kubernetes.sh"
 
 : "${FLUX_GITHUB_BRANCH:=main}"
-: "${FLUX_CLUSTER_PATH:=./clusters/kind}"
+: "${FLUX_CLUSTER_PATH:=./kubernetes/clusters/homelab}"
 
 
 flux::bootstrap_or_apply() {
@@ -55,8 +55,20 @@ flux::bootstrap_or_apply() {
 
   if [[ -n "${FLUX_GIT_TAG:-}" ]]; then
     log::info "Switching Flux to semver-based deployment (range=${FLUX_GIT_TAG})."
-    kubectl patch gitrepository flux-system -n flux-system \
-      --type merge -p "{\"spec\":{\"ref\":{\"semver\":\"${FLUX_GIT_TAG}\"},\"interval\":\"1m\"}}"
+    # Replace the branch-tracked GitRepository with an explicit semver ref in
+    # one atomic operation. Recreate (not patch) so the ref object is built
+    # from scratch: it carries exactly one selector (--tag-semver) and never
+    # retains a stale branch/tag/commit key. The configuration selects both
+    # a bootstrap branch (FLUX_GITHUB_BRANCH) and a semver range
+    # (FLUX_GIT_TAG); the semver selector resolves that ambiguity by fully
+    # replacing the branch selector for spec.ref — the branch stays in use
+    # only for the initial bootstrap. Fail loudly if the switch does not apply.
+    kubectl delete gitrepository flux-system -n flux-system --ignore-not-found
+    flux create source git flux-system \
+      --url="https://github.com/${GITHUB_USER}/${FLUX_GITHUB_REPOSITORY}" \
+      --tag-semver="${FLUX_GIT_TAG}" \
+      --interval=1m \
+      --namespace=flux-system
     log::success "Flux now watches semver tags (${FLUX_GIT_TAG}) instead of branch '${FLUX_GITHUB_BRANCH}'."
     printf -v "${semver_var_name}" '%s' "enabled (${FLUX_GIT_TAG})"
     log::info "Push a semver tag to deploy: make tag v=0.0.1"

@@ -1,0 +1,11 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - kustomizations/00-bootstrap.yaml
+  - kustomizations/10-cluster-resources.yaml
+  - kustomizations/20-platform.yaml
+  - kustomizations/30-openbao-config.yaml
+  - kustomizations/40-cluster-policies.yaml
+  - kustomizations/50-operations.yaml
+  - kustomizations/60-apps.yaml
