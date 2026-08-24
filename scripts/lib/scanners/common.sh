@@ -267,12 +267,17 @@ validate_reports() {
 
   for f in "${required[@]}"; do
     [ -s "$REPORT_DIR/$f" ] || continue
-    if ! python3 - "$REPORT_DIR/$f" <<'PY'
+    if ! python3 - "$REPORT_DIR/$f" "$f" <<'PY'
 import json, pathlib, sys
 p = pathlib.Path(sys.argv[1])
+name = sys.argv[2]
 if p.suffix not in {'.json', '.sarif'}:
     raise SystemExit(0)
 data = json.loads(p.read_text())
+if name == 'gitleaks-report.json':
+    raise SystemExit(0 if isinstance(data, list) else 1)
+if not isinstance(data, dict):
+    raise SystemExit(1)
 if data.get('status') == 'error':
     raise SystemExit(1)
 if any(inv.get('executionSuccessful') is False for run in data.get('runs', []) for inv in run.get('invocations', [])):
