@@ -196,8 +196,10 @@ production:
 
 - **[VPS Tailscale Setup](../../../document-project/web-documentasi/devsecops-homelab/template-wiki/Wiki/Concepts/network-and-trust-boundaries.md)** — Install Tailscale on the VPS host,
   get its Tailscale IP, and verify connectivity.
-- **[CI Deploy Secrets](../../../document-project/web-documentasi/devsecops-homelab/template-wiki/Wiki/Concepts/secrets-lifecycle.md)** — Create the Tailscale OAuth client for CI,
-  encode the kubeconfig, and configure GitHub Environment secrets.
+- **CI Deploy Secrets** — Set production secret `TS_AUTHKEY` to an ephemeral,
+  reusable, pre-signed Tailscale auth key (`tskey-auth-...`) because Tailnet Lock is
+  enabled. An API key (`ks...`) is not a node auth key and will be rejected. Also encode
+  the kubeconfig and configure it as the production `KUBECONFIG` secret.
 - **[Tailscale VPS Strategy](../../../document-project/web-documentasi/devsecops-homelab/template-wiki/Wiki/Entities/tailscale.md)** — Full reference including
   security model, TLS cert handling, and troubleshooting.
 
