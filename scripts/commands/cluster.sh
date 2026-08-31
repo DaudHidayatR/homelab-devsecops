@@ -234,15 +234,15 @@ Check pod status with: kubectl get pods -n ${DEMO_NAMESPACE}
 --- Tailscale Private Access ---
 If TAILSCALE_CLIENT_ID and TAILSCALE_CLIENT_SECRET are set in config.env,
 admin UIs are automatically available on your tailnet:
-   Headlamp:  https://headlamp-kube-system.<tailnet>.ts.net
+   Headlamp:  https://headlamp-headlamp.<tailnet>.ts.net
    OpenBao:   https://openbao-openbao.<tailnet>.ts.net
 
 If Tailscale credentials are not configured, use legacy port-forward access below.
 
 --- Legacy Port-Forward Access ---
 To access Headlamp Web UI:
-1. Run: kubectl port-forward -n kube-system service/headlamp 8080:80
-2. Get your login token: kubectl create token headlamp-admin -n kube-system
+1. Run: kubectl port-forward -n headlamp service/headlamp 8080:80
+2. Get your login token: kubectl create token headlamp-admin -n headlamp
 3. Open http://localhost:8080 in your browser
 
 

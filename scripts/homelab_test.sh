@@ -125,8 +125,16 @@ PY
   fi
   grep -q '127.0.0.1' "${kind_config}" || { echo "ERROR: kind config lacks loopback SAN" >&2; return 1; }
   grep -q 'localhost' "${kind_config}" || { echo "ERROR: kind config lacks localhost SAN" >&2; return 1; }
-  # Placeholder tokens must be renderable by cluster::render_config
+  # Placeholder tokens must be renderable by cluster::render_config.
+  grep -q 'KIND_API_SERVER_ADDRESS_PLACEHOLDER' "${kind_config}"
   grep -q 'TAILSCALE_VPS_IP_PLACEHOLDER' "${kind_config}"
+  local rendered_kind_config TAILSCALE_VPS_IP=100.71.197.26
+  cluster::render_config rendered_kind_config "${kind_config}"
+  grep -q 'apiServerAddress: "100.71.197.26"' "${rendered_kind_config}"
+  if grep -q 'PLACEHOLDER' "${rendered_kind_config}"; then
+    echo "ERROR: rendered kind config contains an unresolved placeholder" >&2
+    return 1
+  fi
 
   # P1: destructive kind lifecycle operations must be bound to CLUSTER_NAME
   # shellcheck disable=SC2016 # literal pattern; $CLUSTER_NAME must stay unexpanded
