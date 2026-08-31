@@ -181,16 +181,28 @@ assert 'elif [[ "${FLUX_BOOTSTRAP_MODE}" == github ]]' in source, \
     'Direct GitHub bootstrap must require explicit opt-in'
 PY
 
-  # Stage-5 guard (audit v2 follow-up, 2026-09-01): 'make up' must verify
-  # the Flux GitRepository artifact matches git HEAD before waiting on layer
-  # readiness. A stale source previously let every layer report Ready on the
-  # last-good artifact while new manifests (platform/tailscale) never
-  # applied — surfacing only as the opaque "HelmRelease tailscale-operator
-  # not found" failure.
+  # Branch-main convergence + stage-5 guard (audit v2 follow-up, 2026-09-01):
+  # 'make up' must converge the flux-system source to the configured branch
+  # (a cluster bootstrapped from a temporary bootstrap branch would otherwise
+  # keep fetching that branch forever), then verify the Flux GitRepository
+  # artifact matches git HEAD before waiting on layer readiness. A stale
+  # source previously let every layer report Ready on the last-good artifact
+  # while new manifests (platform/tailscale) never applied — surfacing only
+  # as the opaque "HelmRelease tailscale-operator not found" failure.
   python3 - "${root}/scripts/lib/flux.sh" "${root}/scripts/commands/cluster.sh" <<'PY'
 import sys
 
 lib, cmd = (open(p).read() for p in sys.argv[1:3])
+
+assert 'flux::converge_source()' in lib, \
+    'flux.sh must define the branch-main source convergence'
+conv = lib[lib.index('flux::converge_source()'):lib.index('flux::verify_source_sync()')]
+assert 'branch: ${branch}' in conv and 'ref:' in conv, \
+    'convergence must declare the GitRepository branch ref idempotently'
+assert 'git@github.com:*' in conv, \
+    'SSH origins must be normalized to unauthenticated HTTPS fetch'
+assert 'condition=Ready' in conv, \
+    'convergence must wait for the repointed source to sync'
 
 assert 'flux::verify_source_sync()' in lib, \
     'flux.sh must define the source-sync verification'
@@ -204,9 +216,10 @@ assert 'common::die' in fn, \
 
 main = cmd[cmd.index('main()'):]
 assert main.index('flux::bootstrap_or_apply') < \
+       main.index('flux::converge_source') < \
        main.index('flux::verify_source_sync') < \
        main.index('kubectl wait --for=condition=Ready'), \
-    'make up must verify source sync after bootstrap and before layer waits'
+    'make up must converge then verify the source after bootstrap, before layer waits'
 PY
 
   # P1: Tailscale helpers must define every symbol the command layer calls,

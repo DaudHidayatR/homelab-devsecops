@@ -28,6 +28,45 @@ flux::reconcile() {
   log::success "Flux reconciliation and cluster workload checks completed."
 }
 
+# Converge the flux-system source to the branch-main GitOps model (decision
+# 2026-08-31). A cluster bootstrapped from a temporary bootstrap branch keeps
+# fetching that branch forever: layers stay Ready on the last-good artifact
+# while main advances and new manifests (e.g. platform/tailscale) never apply.
+# Declaring the source here makes 'make up' idempotently converge it — the
+# same declaration as the CI deploy job (.github/workflows/IaC.yml). The
+# public repository is fetched unauthenticated over HTTPS; an SSH origin is
+# normalized so no credentials are embedded in the cluster.
+flux::converge_source() {
+  local repo_root="$1" url
+  local branch="${FLUX_GITHUB_BRANCH:-main}"
+
+  url="$(git -C "${repo_root}" remote get-url origin 2>/dev/null || true)"
+  if [[ -n "${url}" ]]; then
+    case "${url}" in
+      git@github.com:*) url="https://github.com/${url#git@github.com:}" ;;
+    esac
+  else
+    [[ -n "${GITHUB_USER:-}" && -n "${FLUX_GITHUB_REPOSITORY:-}" ]] ||
+      common::die "Cannot determine the GitOps repository URL for the flux-system source (no git origin). Set GITHUB_USER and FLUX_GITHUB_REPOSITORY in config.env."
+    url="https://github.com/${GITHUB_USER}/${FLUX_GITHUB_REPOSITORY}.git"
+  fi
+
+  log::info "Converging GitRepository flux-system to branch '${branch}' (${url})."
+  kubectl apply -f - <<EOF
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: flux-system
+  namespace: flux-system
+spec:
+  interval: 1m
+  url: ${url}
+  ref:
+    branch: ${branch}
+EOF
+  kubectl wait gitrepository/flux-system -n flux-system --for=condition=Ready --timeout=5m
+}
+
 # Verify the Flux source artifact matches the checked-out git HEAD before
 # trusting layer readiness (audit v2 follow-up, 2026-09-01). With a stale or
 # failed source fetch, every Kustomization keeps reporting Ready on the

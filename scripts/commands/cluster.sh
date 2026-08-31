@@ -79,6 +79,9 @@ main() {
 
   log::section "4. Bootstrapping Flux CD"
   flux::bootstrap_or_apply DEPLOYMENT_MODE
+  # Branch-main GitOps: converge the source to the checked-out branch and
+  # confirm it synced this commit before trusting layer readiness.
+  flux::converge_source "${PROJECT_ROOT}"
   # Stage-5 guard: confirm Flux actually synced the checked-out commit
   # before trusting layer readiness (see flux::verify_source_sync).
   flux::verify_source_sync "${PROJECT_ROOT}"
