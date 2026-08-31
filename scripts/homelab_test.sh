@@ -181,6 +181,34 @@ assert 'elif [[ "${FLUX_BOOTSTRAP_MODE}" == github ]]' in source, \
     'Direct GitHub bootstrap must require explicit opt-in'
 PY
 
+  # Stage-5 guard (audit v2 follow-up, 2026-09-01): 'make up' must verify
+  # the Flux GitRepository artifact matches git HEAD before waiting on layer
+  # readiness. A stale source previously let every layer report Ready on the
+  # last-good artifact while new manifests (platform/tailscale) never
+  # applied — surfacing only as the opaque "HelmRelease tailscale-operator
+  # not found" failure.
+  python3 - "${root}/scripts/lib/flux.sh" "${root}/scripts/commands/cluster.sh" <<'PY'
+import sys
+
+lib, cmd = (open(p).read() for p in sys.argv[1:3])
+
+assert 'flux::verify_source_sync()' in lib, \
+    'flux.sh must define the source-sync verification'
+fn = lib[lib.index('flux::verify_source_sync()'):lib.index('flux::bootstrap_or_apply()')]
+assert 'rev-parse HEAD' in fn, \
+    'verification must resolve the checked-out git HEAD'
+assert 'status.artifact.revision' in fn, \
+    'verification must compare the GitRepository artifact revision'
+assert 'common::die' in fn, \
+    'verification must fail loudly on a stale or missing artifact'
+
+main = cmd[cmd.index('main()'):]
+assert main.index('flux::bootstrap_or_apply') < \
+       main.index('flux::verify_source_sync') < \
+       main.index('kubectl wait --for=condition=Ready'), \
+    'make up must verify source sync after bootstrap and before layer waits'
+PY
+
   # P1: Tailscale helpers must define every symbol the command layer calls,
   # and the verification flow must deliver the OAuth Secret before
   # verifying the Flux-managed operator (Flux owns the install itself).
