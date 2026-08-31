@@ -28,6 +28,35 @@ flux::reconcile() {
   log::success "Flux reconciliation and cluster workload checks completed."
 }
 
+# Verify the Flux source artifact matches the checked-out git HEAD before
+# trusting layer readiness (audit v2 follow-up, 2026-09-01). With a stale or
+# failed source fetch, every Kustomization keeps reporting Ready on the
+# last-good artifact while new manifests (e.g. platform/tailscale) never
+# apply — which previously surfaced only as the opaque stage-5 failure
+# "HelmRelease tailscale-operator not found". Die here with an actionable
+# message instead.
+flux::verify_source_sync() {
+  local repo_root="$1"
+  local head revision
+
+  head="$(git -C "${repo_root}" rev-parse HEAD 2>/dev/null)" ||
+    common::die "Cannot resolve git HEAD in '${repo_root}': source-sync verification needs a git checkout."
+
+  # Best-effort nudge so a transiently stale artifact refreshes before the
+  # comparison; the decisive check is the revision comparison below.
+  flux reconcile source git flux-system --timeout=120s >/dev/null 2>&1 || true
+
+  revision="$(kubectl get gitrepository flux-system -n flux-system \
+    -o jsonpath='{.status.artifact.revision}' 2>/dev/null || true)"
+  if [[ -z "${revision}" ]]; then
+    common::die "GitRepository flux-system has no synced artifact. Check 'flux get sources git' and source-controller events in flux-system, then rerun 'make up'."
+  fi
+  if [[ "${revision}" != *"${head}"* ]]; then
+    common::die "GitRepository flux-system is stale: synced artifact '${revision}' does not match git HEAD '${head}'. Layers would verify against the last-good state while current manifests never apply. Fix the Flux source (fetch auth/network or watched ref) and rerun 'make up'."
+  fi
+  log::info "Flux source synced at git HEAD ${head:0:12}."
+}
+
 # Branch-main GitOps (decision 2026-08-31): Flux watches the repository's
 # main branch. There is no runtime ref switching, no tag selector, and no
 # 'make tag' flow; every push to main is reconciled by the source controller.
