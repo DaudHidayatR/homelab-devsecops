@@ -48,8 +48,9 @@ tailscale::ensure_oauth_secret() {
 # the platform layer reconciles. Delivery order (decision 2026-08-31):
 #   1. SOPS-encrypted source tailscale/operator-oauth.enc.yaml (preferred)
 #   2. TAILSCALE_CLIENT_ID / TAILSCALE_CLIENT_SECRET env (first bootstrap)
-# Returns non-fatal (1) when neither source is available so 'make up' can
-# continue; the operator HelmRelease simply stays unready until delivered.
+# Returns 1 when neither source is available. Callers must either fail or
+# explicitly implement a Tailscale-disabled mode; silently continuing leaves
+# the Flux platform layer predictably unready.
 tailscale::ensure_deploy_secret() {
   tailscale::ensure_namespace
   if k8s::secret_exists "${TAILSCALE_NAMESPACE}" "${TAILSCALE_OPERATOR_OAUTH_SECRET}"; then
@@ -78,8 +79,7 @@ tailscale::ensure_deploy_secret() {
     return 0
   fi
 
-  log::warn "No Tailscale OAuth credentials available (no decryptable SOPS source, no env). The Flux-managed operator HelmRelease stays unready until Secret ${TAILSCALE_NAMESPACE}/${TAILSCALE_OPERATOR_OAUTH_SECRET} is delivered."
-  return 1
+  common::die "Tailscale is part of the declared platform but no OAuth credentials are available. Run 'make tailscale-encrypt' with a real age recipient, or set TAILSCALE_CLIENT_ID/TAILSCALE_CLIENT_SECRET for one bootstrap and then create the SOPS source."
 }
 
 tailscale::validate_identity_file() {

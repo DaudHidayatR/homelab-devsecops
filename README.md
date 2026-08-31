@@ -371,13 +371,19 @@ Success is observable when status reports `initialized: true`, `sealed: false`, 
 
 Admin services are annotated for automatic tailnet exposure via the Tailscale Kubernetes Operator.
 
-Primary path: encrypt the operator OAuth credentials once with SOPS (`make tailscale-encrypt` — see `tailscale/README.md`), or set `TAILSCALE_CLIENT_ID`/`TAILSCALE_CLIENT_SECRET` in `config.env` for the first bootstrap, then run:
+Primary path: encrypt the operator OAuth credentials once with SOPS (`make tailscale-encrypt` — see `tailscale/README.md`), or set `TAILSCALE_CLIENT_ID`/`TAILSCALE_CLIENT_SECRET` for one bootstrap and create the encrypted source immediately afterward, then run:
 
 ```bash
 make up
 ```
 
-The operator install is Flux-owned (HelmRelease `tailscale-operator`, chart 1.102.3). `scripts/homelab cluster up` delivers the OAuth Secret (SOPS first via `make tailscale-encrypt`, env fallback) and verifies the rollout; tailnet access is declared with tailscale-class Ingresses (`headlamp-tailnet`, `openbao-tailnet`) instead of imperative `tailscale serve` calls.
+The operator install is Flux-owned (HelmRelease `tailscale-operator`, chart 1.102.3). `scripts/homelab cluster up` delivers the OAuth Secret (SOPS first, one-bootstrap environment fallback), fails if neither source is usable, and verifies the rollout; tailnet access is declared with tailscale-class Ingresses (`headlamp-tailnet`, `openbao-tailnet`) instead of imperative `tailscale serve` calls.
+
+> **NetworkPolicy limit:** this kind cluster keeps the default kindnetd CNI. Any
+> NetworkPolicy committed here is CI-validated declarative intent only and is **not
+> enforced at runtime**. PSA and Kyverno admission checks do not replace a policy-capable
+> data plane. Switch to the researched Cilium/Calico path before running untrusted
+> workloads that require segmentation.
 
 Manual Tailscale install and Serve repair:
 

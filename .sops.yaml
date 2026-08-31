@@ -1,11 +1,8 @@
 # SOPS configuration for homelab-devsecops.
 #
-# The age recipient below is an explicit PLACEHOLDER so that encrypting with
-# real credentials fails loudly until the real recipient is configured.
-# Replace it with the age public key that owns the homelab recovery material
-# (the private key must live only on the operator workstation / recovery
-# medium, never in this repository).
+# The private key must live only on the operator workstation / recovery
+# medium, never in this repository.
 creation_rules:
   - path_regex: tailscale/operator-oauth\.enc\.yaml$
     encrypted_regex: ^(data|stringData)$
-    age: age1PLACEHOLDER_REPLACE_WITH_REAL_AGE_RECIPIENT
+    age: age1q72zcfcguungrskht7mf0n7d4hcn4j7h4kplfa4rkdgcjjusw5nsmhf936
