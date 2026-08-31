@@ -127,7 +127,7 @@ if kubectl get deployment operator -n tailscale &>/dev/null; then
 fi
 
 mapfile -t PROXY_PODS < <(kubectl get pods -n tailscale \
-  -l tailscale.com/managed=true,tailscale.com/parent-resource-type=svc \
+  -l tailscale.com/managed=true \
   -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null || true)
 
 if [ "${#PROXY_PODS[@]}" -gt 0 ]; then
@@ -165,7 +165,7 @@ if ! tailscale lock status | grep -q 'Tailnet Lock is ENABLED'; then
 fi
 
 mapfile -t PROXY_PODS < <(kubectl get pods -n tailscale \
-  -l tailscale.com/managed=true,tailscale.com/parent-resource-type=svc \
+  -l tailscale.com/managed=true \
   -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null || true)
 
 if [ "${#PROXY_PODS[@]}" -eq 0 ]; then
