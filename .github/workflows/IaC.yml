@@ -279,18 +279,10 @@ jobs:
           kubectl wait --for=condition=Available deployment/kustomize-controller -n flux-system --timeout=180s
           kubectl wait --for=condition=Available deployment/helm-controller -n flux-system --timeout=180s
 
-          if kubectl get gitrepository flux-system -n flux-system >/dev/null 2>&1; then
-            # Replace the existing source atomically: recreating (rather than
-            # merge-patching spec.ref) guarantees the ref object carries only
-            # the semver selector, never a stale branch/tag/commit key.
-            kubectl delete gitrepository flux-system -n flux-system --ignore-not-found
-            flux create source git flux-system \
-              --url="${REPOSITORY_URL}" \
-              --tag-semver=">=0.0.0" \
-              --interval=1m \
-              --namespace=flux-system
-          else
-            kubectl apply -f - <<EOF
+          # Branch-main deployment model (decision 2026-08-31): the source
+          # watches the repository main branch. Declared idempotently so a
+          # pre-existing source with any other ref converges to this state.
+          kubectl apply -f - <<EOF
           apiVersion: source.toolkit.fluxcd.io/v1
           kind: GitRepository
           metadata:
@@ -300,9 +292,8 @@ jobs:
             interval: 1m
             url: ${REPOSITORY_URL}
             ref:
-              semver: ">=0.0.0"
+              branch: main
           EOF
-          fi
           kubectl wait gitrepository/flux-system -n flux-system --for=condition=Ready --timeout=5m
 
           # The repository is public, so the source is fetched unauthenticated

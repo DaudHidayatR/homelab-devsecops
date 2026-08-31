@@ -21,17 +21,3 @@ spec:
     - kind: ConfigMap
       name: openbao-values
       valuesKey: values.yaml
-  postRenderers:
-    - kustomize:
-        patches:
-          - target:
-              kind: Service
-              name: openbao
-            patch: |-
-              apiVersion: v1
-              kind: Service
-              metadata:
-                name: openbao
-                annotations:
-                  tailscale.com/expose: "true"
-                  tailscale.com/serve: "true"

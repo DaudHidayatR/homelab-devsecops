@@ -1,0 +1,17 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: tailscale
+
+resources:
+  - helmrepository.yaml
+  - helmrelease.yaml
+
+generatorOptions:
+  disableNameSuffixHash: true
+
+configMapGenerator:
+  - name: tailscale-operator-values
+    namespace: tailscale
+    files:
+      - values.yaml=operator-values.yaml

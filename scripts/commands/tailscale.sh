@@ -4,8 +4,11 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 command_tailscale_install() {
   (
-# Tailscale Kubernetes Operator Installer.
-# This standalone entrypoint uses the same shared lifecycle as setup.sh.
+# Verify the Flux-managed Tailscale Kubernetes Operator installation.
+# Ownership contract (audit v2, 2026-08-31): Flux owns the install via the
+# platform/tailscale HelmRelease; this command delivers the OAuth Secret
+# (SOPS first, env fallback) and verifies the rollout. It never applies
+# upstream manifests and never patches the deployment.
 
 set -Eeuo pipefail
 
@@ -21,25 +24,17 @@ source "${PROJECT_ROOT}/scripts/lib/tailscale.sh"
 usage() {
   cat <<'USAGE'
 Usage:
-  scripts/homelab tailscale install [options]
+  scripts/homelab tailscale install
 
-Options:
-  -h, --help          Show this help
-  --operator-only     Install only the operator, without Serve configuration
-
-Configuration:
-  TAILSCALE_CLIENT_ID and TAILSCALE_CLIENT_SECRET are read from config.env or
-  the current environment when the operator-oauth Secret does not already exist.
+Verify the Flux-managed Tailscale operator installation (HelmRelease
+tailscale-operator). Deliver the operator-oauth Secret first via
+'make tailscale-encrypt' (SOPS) or TAILSCALE_CLIENT_ID/TAILSCALE_CLIENT_SECRET
+in config.env.
 USAGE
 }
 
-OPERATOR_ONLY="false"
-
 while (($# > 0)); do
   case "$1" in
-    --operator-only)
-      OPERATOR_ONLY="true"
-      ;;
     -h|--help)
       usage
       exit 0
@@ -54,31 +49,24 @@ done
 main() {
   common::require_commands kubectl python3
 
-  log::section "Installing Tailscale Kubernetes Operator"
-  tailscale::ensure_namespace
-  tailscale::ensure_oauth_secret
-
-  local identity_backup
-  common::mktemp_var identity_backup
-  tailscale::backup_operator_identity "${identity_backup}"
-  tailscale::install_operator
-  tailscale::restore_operator_identity "${identity_backup}"
-
-  if [[ "${OPERATOR_ONLY}" != "true" ]]; then
-    log::info "Waiting for Tailscale proxy pods to be ready."
-    tailscale::wait_proxy_pods 30 5
-    log::info "Configuring Tailscale Serve on proxy pods."
-    tailscale::configure_serve
-    log::info "Deploying Tailscale Serve watcher."
-    tailscale::deploy_serve_watcher
+  log::section "Verifying Tailscale Kubernetes Operator (Flux-managed)"
+  if ! tailscale::ensure_deploy_secret; then
+    common::die "Deliver ${TAILSCALE_NAMESPACE}/operator-oauth first: run 'make tailscale-encrypt' (SOPS flow) or set TAILSCALE_CLIENT_ID/TAILSCALE_CLIENT_SECRET in config.env, then rerun."
   fi
 
-  log::success "Tailscale operator installation flow complete."
-  cat <<'MSG'
-Services annotated with 'tailscale.com/expose: "true"' will be accessible from
-your tailnet at https://<service>-<namespace>.<tailnet>.ts.net.
+  tailscale::install_operator
 
-For public internet access, change the annotation to:
+  log::info "Waiting for Tailscale proxy pods to be ready."
+  if ! tailscale::wait_proxy_pods 30 5; then
+    log::warn "No proxy pods yet. Declare access via tailscale-class Ingresses (see kubernetes/clusters/homelab/apps/headlamp/ingress.yaml); proxies appear once Flux reconciles them."
+  fi
+
+  log::success "Tailscale operator verification complete."
+  cat <<'MSG'
+Tailnet access is declared with tailscale-class Ingresses. The operator serves
+https://<service>-<namespace>.<tailnet>.ts.net for each Ingress.
+
+For public internet access, add the annotation:
   tailscale.com/funnel: "true"
 MSG
 }
@@ -157,7 +145,6 @@ Reset complete.
 
 Next steps when Tailnet Lock is enabled:
   scripts/homelab tailscale sign
-  scripts/homelab tailscale configure-serve
   scripts/homelab tailscale check
 EOF
   )
@@ -328,10 +315,12 @@ log::success "All Tailscale access checks passed."
   )
 }
 
-command_tailscale_configure_serve() {
-  # shellcheck source=scripts/lib/tailscale.sh
-  source "${ROOT_DIR}/scripts/lib/tailscale.sh"
-  tailscale::configure_serve
+command_tailscale_status() {
+  # Serve configuration moved to declarative tailscale-class Ingresses
+  # (audit v2 remediation, 2026-08-31). Show proxy state instead.
+  kubectl get ingress -A 2>/dev/null || true
+  kubectl get pods -n "${TAILSCALE_NAMESPACE:-tailscale}" \
+    -l tailscale.com/managed=true -o wide || true
 }
 
 command_tailscale_restore() {
@@ -388,7 +377,7 @@ case "$command" in
   reset) command_tailscale_reset "$@" ;;
   sign) command_tailscale_sign "$@" ;;
   check) command_tailscale_check "$@" ;;
-  configure-serve) command_tailscale_configure_serve "$@" ;;
+  status) command_tailscale_status "$@" ;;
   restore) command_tailscale_restore "$@" ;;
   *) echo "Unknown tailscale command: $command" >&2; exit 2 ;;
 esac

@@ -6,6 +6,7 @@ resources:
   - openbao.yaml
   - istio-system.yaml
   - headlamp.yaml
+  - tailscale.yaml
 
 patches:
   - target:

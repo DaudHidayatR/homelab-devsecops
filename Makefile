@@ -1,4 +1,4 @@
-.PHONY: up down recover scan tailscale tailscale-reset tailscale-sign tailscale-check status access-info help validate-kustomize sync redeploy flux-status flux-diff security sast secrets sca sbom iac validate clean prune-branches prune-branches-force tag openbao-policies openbao-status openbao-create-user openbao-create-approle lint-sh fmt-sh check-sh syntax-sh
+.PHONY: up down recover scan tailscale tailscale-reset tailscale-sign tailscale-check tailscale-status tailscale-encrypt sops-verify status access-info help validate-kustomize sync redeploy flux-status flux-diff security sast secrets sca sbom iac validate clean prune-branches prune-branches-force tag openbao-policies openbao-status openbao-create-user openbao-create-approle lint-sh fmt-sh check-sh syntax-sh
 
 
 up:
@@ -21,6 +21,22 @@ tailscale-sign:
 
 tailscale-check:
 	./scripts/homelab tailscale check
+
+tailscale-status:
+	./scripts/homelab tailscale status
+
+tailscale-encrypt:
+	@if [ ! -f tailscale/operator-oauth.local.yaml ]; then \
+		echo "Usage: cp tailscale/operator-oauth.local.example tailscale/operator-oauth.local.yaml, fill it in, then rerun make tailscale-encrypt" >&2; \
+		exit 1; \
+	fi
+	@command -v sops >/dev/null 2>&1 || { echo "sops is required" >&2; exit 1; }
+	@sops -e --encrypted-regex '^(data|stringData)$$' tailscale/operator-oauth.local.yaml > tailscale/operator-oauth.enc.yaml
+	@echo "Wrote tailscale/operator-oauth.enc.yaml (plaintext stays local and gitignored)."
+
+sops-verify:
+	@command -v sops >/dev/null 2>&1 || { echo "sops is required" >&2; exit 1; }
+	@sops -d tailscale/operator-oauth.enc.yaml >/dev/null && echo "SOPS file decrypts cleanly."
 
 recover:
 	@if [ -z "$$BACKUP_DIR" ]; then echo "Usage: BACKUP_DIR=<validated-backup-directory> make recover" >&2; exit 1; fi

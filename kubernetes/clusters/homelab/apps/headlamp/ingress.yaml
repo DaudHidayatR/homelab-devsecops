@@ -1,0 +1,25 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: headlamp-tailnet
+  namespace: headlamp
+  annotations:
+    # Architecture audit v2 remediation (2026-08-31): L7 access is declared
+    # here instead of imperative `tailscale serve` calls. The Tailscale
+    # operator's Ingress backend provisions and maintains the proxy for this
+    # route (hostname: headlamp-headlamp.<tailnet>.ts.net).
+    #
+    # To expose on the public internet instead, switch the annotation to
+    # `tailscale.com/funnel: "true"`.
+spec:
+  ingressClassName: tailscale
+  rules:
+    - http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: headlamp
+                port:
+                  number: 80

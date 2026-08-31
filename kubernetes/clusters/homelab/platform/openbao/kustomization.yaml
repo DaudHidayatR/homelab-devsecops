@@ -5,3 +5,4 @@ resources:
   - release/
   - network-policy.yaml
   - default-deny-ingress.yaml
+  - ingress.yaml

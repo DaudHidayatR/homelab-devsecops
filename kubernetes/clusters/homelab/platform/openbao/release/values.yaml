@@ -21,13 +21,13 @@ server:
     tag: "2.5.2"
 
   service:
-    # NOTE: Do NOT add tailscale.com/expose or tailscale.com/serve here!
+    # NOTE: Do NOT set tailscale.com/expose or tailscale.com/serve here!
     # The OpenBao Helm chart applies server.service.annotations to ALL
     # services it creates (openbao, openbao-active, openbao-standby,
-    # openbao-internal, openbao-ui), causing Tailscale operator to create
-    # duplicate proxy pods for each. Instead, annotate only the main
-    # 'openbao' Service manually after deployment:
-    #   kubectl annotate svc openbao -n openbao tailscale.com/expose=true tailscale.com/serve=true
+    # openbao-internal, openbao-ui), which would create duplicate Tailscale
+    # proxy pods. Tailnet access is declared declaratively via the L7
+    # 'openbao-tailnet' Ingress (see ../ingress.yaml), which the Tailscale
+    # operator resolves against the main 'openbao' Service.
     annotations: {}
 
   updateStrategyType: RollingUpdate

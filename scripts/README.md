@@ -44,7 +44,7 @@ scripts/
 | `scripts/homelab tailscale reset` | Reset stale proxy identities |
 | `scripts/homelab tailscale sign --sudo` | Sign proxy nodes for Tailnet Lock |
 | `scripts/homelab tailscale check` | Check DNS, HTTPS, and Serve access |
-| `scripts/homelab tailscale configure-serve` | Reconcile proxy Serve backends |
+| `scripts/homelab tailscale status` | Show Tailscale ingresses and proxy pods |
 | `scripts/homelab tailscale restore <backup>` | Restore operator identity |
 | `scripts/homelab security scan [scanner]` | Run all scanners or one named scanner |
 
@@ -53,12 +53,14 @@ Make targets remain convenience aliases. Sensitive OpenBao and Tailscale materia
 
 This directory contains Tailscale operational helpers for the local kind DevSecOps lab. The operator exposes selected Kubernetes Services directly to your tailnet without traditional ingress controllers, cloud LoadBalancers, public IPs, or manual DNS/certificate management.
 
-## Two-tier access architecture
+## Declarative L7 access architecture
 
-| Tier | Annotation | Access level | Recommended use |
+Tailnet access is declared with `ingressClassName: tailscale` Ingress resources (audit v2 remediation, 2026-08-31):
+
+| Tier | Declaration | Access level | Recommended use |
 |---|---|---|---|
-| **Private** | `tailscale.com/expose: "true"` | Tailnet only | Headlamp, OpenBao, internal dashboards |
-| **Public** | `tailscale.com/funnel: "true"` | Internet-facing | Explicitly public demos/APIs only |
+| **Private** | Tailscale Ingress (default) | Tailnet only | Headlamp, OpenBao, internal dashboards |
+| **Public** | `tailscale.com/funnel: "true"` Ingress annotation | Internet-facing | Explicitly public demos/APIs only |
 
 Both tiers use the same operator. Keep admin tools private by default. Promoting a service to public access should be a deliberate reviewable change.
 
@@ -85,7 +87,7 @@ Automated steps:
 4. Install the Tailscale Kubernetes Operator when missing.
 5. Annotate the main OpenBao Service for tailnet exposure.
 6. Wait for operator-managed proxy pods.
-7. Run `scripts/homelab tailscale configure-serve`, the single scheme-aware backend selector.
+7. Verify declared access with `scripts/homelab tailscale status` (ingresses + proxy pods).
 
 Use this primary path for normal first-time setup.
 
@@ -167,7 +169,7 @@ kubectl get pods -n tailscale -l tailscale.com/managed=true
 List exposed services:
 
 ```bash
-kubectl get svc -A -o jsonpath='{range .items[?(@.metadata.annotations.tailscale\.com/expose=="true")]}{.metadata.namespace}/{.metadata.name}{"\n"}{end}'
+kubectl get ingress -A'
 ```
 
 Run the project access check:
@@ -176,10 +178,10 @@ Run the project access check:
 scripts/homelab tailscale check
 ```
 
-Re-apply Serve config if proxy pods were recreated:
+Re-check declared access if proxy pods were recreated:
 
 ```bash
-scripts/homelab tailscale configure-serve
+scripts/homelab tailscale status
 ```
 
 ## Expected URLs
@@ -193,7 +195,7 @@ Once proxy DNS and Serve are ready, admin UIs are available from devices allowed
 
 ## Security notes
 
-- Prefer private `tailscale.com/expose: "true"` for admin tools.
+- Prefer private Tailscale Ingresses (no funnel annotation) for admin tools.
 - Use public `tailscale.com/funnel: "true"` only for intentionally public services.
 - Tailscale ACLs still govern which tailnet users can reach exposed services.
 - Treat OAuth client secrets and the `tailscale/operator` identity Secret as sensitive.

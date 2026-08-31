@@ -1,0 +1,11 @@
+# Copy to tailscale/operator-oauth.local.yaml and fill in real values.
+# NEVER commit operator-oauth.local.yaml (gitignored) or the plaintext.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: operator-oauth
+  namespace: tailscale
+type: Opaque
+stringData:
+  client_id: "k1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+  client_secret: "tskey-client-k1234567890abcdef-1234567890abcdef1234567890abcdef"

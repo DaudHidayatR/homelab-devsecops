@@ -1,0 +1,37 @@
+# SOPS-encrypted Tailscale operator OAuth credentials.
+#
+# ONE-TIME SETUP (see tailscale/README.md):
+#   1. cp tailscale/operator-oauth.local.example tailscale/operator-oauth.local.yaml
+#   2. Fill in the real client_id / client_secret values.
+#   3. Replace the SOPS age recipient in .sops.yaml with the recipient that
+#      owns the homelab recovery material.
+#   4. make tailscale-encrypt   # writes this file; never commit plaintext.
+#
+# 'make up' decrypts this file at deploy time to create Secret
+# tailscale/operator-oauth, which the Flux-managed operator HelmRelease
+# mounts via CLIENT_ID_FILE/CLIENT_SECRET_FILE. Never commit decrypted
+# values; 'scripts/check_sops_encrypted.py' enforces this in CI.
+apiVersion: v1
+kind: Secret
+metadata:
+    name: operator-oauth
+    namespace: tailscale
+type: Opaque
+stringData:
+    client_id: ENC[AES256_GCM,data:REPLACE_ME,iv:REPLACE_ME,tag:REPLACE_ME,type:str]
+    client_secret: ENC[AES256_GCM,data:REPLACE_ME,iv:REPLACE_ME,tag:REPLACE_ME,type:str]
+sops:
+    kms: []
+    azure_kv: []
+    gcp_kms: []
+    hc_vault: []
+    age:
+        - recipient: age1PLACEHOLDER_REPLACE_WITH_REAL_AGE_RECIPIENT
+          enc: |
+            -----BEGIN AGE ENCRYPTED FILE-----
+            REPLACE_WITH_REAL_ENCRYPTED_FILE
+            -----END AGE ENCRYPTED FILE-----
+    lastmodified: "2026-08-31T00:00:00Z"
+    mac: ENC[AES256_GCM,data:REPLACE_ME,iv:REPLACE_ME,tag:REPLACE_ME,type:str]
+    encrypted_regex: ^(data|stringData)$
+    version: 3.9.0

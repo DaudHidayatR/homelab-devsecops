@@ -32,33 +32,21 @@ source "${PROJECT_ROOT}/scripts/lib/openbao.sh"
 source "${PROJECT_ROOT}/scripts/lib/tailscale.sh"
 
 DEPLOYMENT_MODE="not-started"
-FLUX_SEMVER_MODE="disabled"
 TAILSCALE_MODE="skipped"
 OPENBAO_POST_SETUP_REQUIRED="yes"
 
 
-openbao::annotate_tailscale_service() {
-  log::section "4.5. Configuring Tailscale annotations on OpenBao"
-  # The OpenBao Helm chart creates multiple services, but only the main
-  # openbao Service should be exposed to avoid duplicate Tailscale proxies.
-  if k8s::service_exists "${OPENBAO_NS}" "openbao"; then
-    k8s::annotate_service "${OPENBAO_NS}" "openbao" \
-      tailscale.com/expose=true \
-      tailscale.com/serve=true
-    log::success "OpenBao main Service annotated for Tailscale."
-  else
-    log::warn "openbao Service not found; skipping annotation."
-  fi
-}
-
 tailscale::install_if_configured() {
-  log::section "5. Installing Tailscale Operator (optional)"
-  if [[ -n "${TAILSCALE_CLIENT_ID:-}" && -n "${TAILSCALE_CLIENT_SECRET:-}" ]]; then
-    TAILSCALE_MODE="enabled"
-    tailscale::install_full ""
+  log::section "5. Verifying Tailscale operator (Flux-managed, optional)"
+  # Ownership contract (audit v2, 2026-08-31): Flux owns the operator
+  # install via platform/tailscale. The shell only delivers the OAuth
+  # Secret (SOPS first, env fallback) and verifies the rollout.
+  if tailscale::ensure_deploy_secret; then
+    TAILSCALE_MODE="Flux-managed (credentials delivered)"
+    tailscale::install_operator
   else
-    TAILSCALE_MODE="skipped (missing OAuth credentials)"
-    log::warn "TAILSCALE_CLIENT_ID or TAILSCALE_CLIENT_SECRET not set. Skipping Tailscale operator."
+    TAILSCALE_MODE="skipped (no OAuth credentials; deliver via 'make tailscale-encrypt' or env)"
+    log::warn "Tailscale credentials unavailable; the Flux-managed operator HelmRelease stays unready until delivered."
   fi
 }
 
@@ -71,7 +59,6 @@ setup::print_summary() {
   log::section "Setup Summary"
   cat <<MSG
 Deployment mode: ${DEPLOYMENT_MODE}
-Flux semver mode: ${FLUX_SEMVER_MODE}
 Tailscale mode: ${TAILSCALE_MODE}
 OpenBao post-setup required: ${OPENBAO_POST_SETUP_REQUIRED}
 
@@ -91,7 +78,7 @@ main() {
 
 
   log::section "4. Bootstrapping Flux CD"
-  flux::bootstrap_or_apply DEPLOYMENT_MODE FLUX_SEMVER_MODE
+  flux::bootstrap_or_apply DEPLOYMENT_MODE
 
   kubectl wait --for=condition=Ready \
     kustomization/bootstrap \
@@ -103,7 +90,6 @@ main() {
     kustomization/apps \
     -n flux-system --timeout=300s
 
-  openbao::annotate_tailscale_service
   tailscale::install_if_configured
   setup::print_summary
 
