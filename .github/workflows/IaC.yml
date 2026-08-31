@@ -263,7 +263,21 @@ jobs:
           echo "KUBECONFIG=$RUNNER_TEMP/kubeconfig" >> "$GITHUB_ENV"
 
       - name: Verify cluster connectivity
-        run: kubectl cluster-info
+        run: |
+          server="$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}')"
+          host_port="${server#https://}"
+          host="${host_port%:*}"
+          port="${host_port##*:}"
+          echo "Kubernetes API endpoint: ${host}:${port}"
+          tailscale status
+          tailscale ping --timeout=10s "${host}"
+          timeout 10 bash -c "</dev/tcp/${host}/${port}" || {
+            echo "ERROR: ${host}:${port} is not reachable over the tailnet."
+            echo "Verify the VPS Tailscale IP and ACL/Tailnet Lock approval."
+            echo "Recreate kind with TAILSCALE_VPS_IP so port 6443 binds to tailscale0."
+            exit 1
+          }
+          kubectl cluster-info --request-timeout=10s
 
       - name: Install Flux controllers and source
         env:

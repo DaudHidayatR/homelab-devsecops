@@ -92,9 +92,11 @@ cluster::render_config() {
   cp "${source_config}" "${rendered_config_path}"
 
   if [[ -n "${TAILSCALE_VPS_IP:-}" ]]; then
-    sed -i "s/TAILSCALE_VPS_IP_PLACEHOLDER/${TAILSCALE_VPS_IP}/g" "${rendered_config_path}"
+    python3 -c 'import ipaddress, sys; sys.exit(ipaddress.ip_address(sys.argv[1]) not in ipaddress.ip_network("100.64.0.0/10"))' "${TAILSCALE_VPS_IP}" ||
+      common::die "TAILSCALE_VPS_IP must be an IPv4 address in Tailscale CGNAT range 100.64.0.0/10."
+    sed -i "s/KIND_API_SERVER_ADDRESS_PLACEHOLDER/${TAILSCALE_VPS_IP}/g; s/TAILSCALE_VPS_IP_PLACEHOLDER/${TAILSCALE_VPS_IP}/g" "${rendered_config_path}"
   else
-    sed -i '/TAILSCALE_VPS_IP_PLACEHOLDER/d' "${rendered_config_path}"
+    sed -i "s/KIND_API_SERVER_ADDRESS_PLACEHOLDER/127.0.0.1/g; /TAILSCALE_VPS_IP_PLACEHOLDER/d" "${rendered_config_path}"
   fi
 
   if [[ -n "${TAILSCALE_VPS_HOSTNAME:-}" ]]; then
