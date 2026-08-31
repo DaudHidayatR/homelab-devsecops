@@ -31,7 +31,7 @@ tailscale-encrypt:
 		exit 1; \
 	fi
 	@command -v sops >/dev/null 2>&1 || { echo "sops is required" >&2; exit 1; }
-	@sops -e --encrypted-regex '^(data|stringData)$$' tailscale/operator-oauth.local.yaml > tailscale/operator-oauth.enc.yaml
+	@sops --filename-override tailscale/operator-oauth.enc.yaml --indent 2 -e --encrypted-regex '^(data|stringData)$$' tailscale/operator-oauth.local.yaml > tailscale/operator-oauth.enc.yaml
 	@echo "Wrote tailscale/operator-oauth.enc.yaml (plaintext stays local and gitignored)."
 
 sops-verify:

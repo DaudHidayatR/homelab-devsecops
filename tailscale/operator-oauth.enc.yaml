@@ -1,16 +1,3 @@
-# SOPS-encrypted Tailscale operator OAuth credentials.
-#
-# ONE-TIME SETUP (see tailscale/README.md):
-#   1. cp tailscale/operator-oauth.local.example tailscale/operator-oauth.local.yaml
-#   2. Fill in the real client_id / client_secret values.
-#   3. Replace the SOPS age recipient in .sops.yaml with the recipient that
-#      owns the homelab recovery material.
-#   4. make tailscale-encrypt   # writes this file; never commit plaintext.
-#
-# 'make up' decrypts this file at deploy time to create Secret
-# tailscale/operator-oauth, which the Flux-managed operator HelmRelease
-# mounts via CLIENT_ID_FILE/CLIENT_SECRET_FILE. Never commit decrypted
-# values; 'scripts/check_sops_encrypted.py' enforces this in CI.
 apiVersion: v1
 kind: Secret
 metadata:
@@ -18,20 +5,20 @@ metadata:
   namespace: tailscale
 type: Opaque
 stringData:
-  client_id: ENC[AES256_GCM,data:REPLACE_ME,iv:REPLACE_ME,tag:REPLACE_ME,type:str]
-  client_secret: ENC[AES256_GCM,data:REPLACE_ME,iv:REPLACE_ME,tag:REPLACE_ME,type:str]
+  client_id: ENC[AES256_GCM,data:eq/mY0eGfS8RD7SsVgkw7h0=,iv:vuTvo1++ROEbaKHLUxV7/zb0mAk5ZMLyGV//EOeU77M=,tag:d98vaklV7VV2i65deygJGQ==,type:str]
+  client_secret: ENC[AES256_GCM,data:PS7OfgJlsdSbSOm0bANlGILfPIZo16OvZI0eY8xv0aQ9wNrAsEb84ebtRV4ukwXzmInInp+BXw2iU1UOPYxwcg==,iv:3uEMEKnnPvnTjyd02An0gHdoCn1F54+28aHxJylTcZk=,tag:haFcDlIArDpm1YoSSWvecw==,type:str]
 sops:
-  kms: []
-  azure_kv: []
-  gcp_kms: []
-  hc_vault: []
   age:
-    - recipient: age1PLACEHOLDER_REPLACE_WITH_REAL_AGE_RECIPIENT
-      enc: |
+    - enc: |
         -----BEGIN AGE ENCRYPTED FILE-----
-        REPLACE_WITH_REAL_ENCRYPTED_FILE
+        YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSBpejJNNVgwbmd1QW9VZmZE
+        S1JuSDNlRXhqV1Q5VExnMGY4UHVXc01kM0ZJCnlPdGhWeEhaN0hqbS9LSm1XdXNs
+        emVaUzNjYmpMZVprVGY2WGZ3aElyVlkKLS0tIHZpQlV1ckZTc1RXZ3RKUG5XcWdv
+        ZzhvcDM0SUR0NGFoaVhzSEFvb1lDL0UKoJpjQY8L1qPh75uH9KG+iE+ObgL+kcGY
+        kKuE/9Rewck2a/1xQzTZz9WLg+LnR8X0QwYuuLsQ2b/Q+WkbSlZGuQ==
         -----END AGE ENCRYPTED FILE-----
-  lastmodified: "2026-08-31T00:00:00Z"
-  mac: ENC[AES256_GCM,data:REPLACE_ME,iv:REPLACE_ME,tag:REPLACE_ME,type:str]
+      recipient: age1q72zcfcguungrskht7mf0n7d4hcn4j7h4kplfa4rkdgcjjusw5nsmhf936
   encrypted_regex: ^(data|stringData)$
-  version: 3.9.0
+  lastmodified: "2026-08-31T13:04:24Z"
+  mac: ENC[AES256_GCM,data:lzjRC0IIVGPNTyOSU5BgTbu/n+6/9zfXQRoOOCaXbLtvVhaJDa66Glom0R5uzXAQzrDuEUPNxp23sfIW+6I0u8zXpXI95hfvoIEn4EzNsJ7a5cuF0j0xPE9WQv4PpXucvJ78jrvqdap9IVb2x7aclWL3MdFCaM/MEG/ZJbCHB6U=,iv:CFeKqaPDEHMrJr170wZoJC2qzUaGRMQSCwFNlmWlEzg=,tag:L04rsElsUbEH6OEmjT5ZpQ==,type:str]
+  version: 3.13.3

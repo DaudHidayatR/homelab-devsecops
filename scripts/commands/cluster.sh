@@ -41,13 +41,9 @@ tailscale::install_if_configured() {
   # Ownership contract (audit v2, 2026-08-31): Flux owns the operator
   # install via platform/tailscale. The shell only delivers the OAuth
   # Secret (SOPS first, env fallback) and verifies the rollout.
-  if tailscale::ensure_deploy_secret; then
-    TAILSCALE_MODE="Flux-managed (credentials delivered)"
-    tailscale::install_operator
-  else
-    TAILSCALE_MODE="skipped (no OAuth credentials; deliver via 'make tailscale-encrypt' or env)"
-    log::warn "Tailscale credentials unavailable; the Flux-managed operator HelmRelease stays unready until delivered."
-  fi
+  tailscale::ensure_deploy_secret
+  TAILSCALE_MODE="Flux-managed (credentials delivered)"
+  tailscale::install_operator
 }
 
 setup::print_preflight_notes() {

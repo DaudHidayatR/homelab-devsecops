@@ -4,6 +4,7 @@ import os
 import sys
 
 ENC_PATHS = ("tailscale/operator-oauth.enc.yaml",)
+PLACEHOLDERS = ("REPLACE_ME", "PLACEHOLDER_REPLACE", "REPLACE_WITH_REAL")
 
 
 def main() -> int:
@@ -15,13 +16,13 @@ def main() -> int:
             print(f"FAIL: {rel} is missing (expected the SOPS-encrypted credential source)")
             failed = True
             continue
-        text = open(path).read()
+        text = open(path, encoding="utf-8").read()
         if "sops:" not in text or "ENC[AES256_GCM" not in text:
             print(f"FAIL: {rel} is not SOPS-encrypted")
             failed = True
-        for marker in ("client_id: k1", "tskey-client-"):
+        for marker in PLACEHOLDERS + ("client_id: k1", "tskey-client-"):
             if marker in text:
-                print(f"FAIL: {rel} contains plaintext credential material ({marker!r})")
+                print(f"FAIL: {rel} contains placeholder or plaintext material ({marker!r})")
                 failed = True
         if not failed:
             print(f"OK: {rel} is SOPS-encrypted")
