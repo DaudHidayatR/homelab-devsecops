@@ -1,0 +1,33 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: openbao-tailnet
+  namespace: openbao
+  annotations:
+    # Architecture audit v2 remediation (2026-08-31): tailnet access is
+    # declared here instead of imperative `tailscale serve` calls. The
+    # operator's Ingress backend terminates HTTPS at the tailnet boundary and
+    # forwards to the in-cluster HTTP service (hostname:
+    # openbao-openbao.<tailnet>.ts.net, UI under /ui/).
+    #
+    # To expose on the public internet instead, switch the annotation to
+    # `tailscale.com/funnel: "true"`.
+spec:
+  ingressClassName: tailscale
+  rules:
+    - http:
+        paths:
+          - path: /ui/
+            pathType: Prefix
+            backend:
+              service:
+                name: openbao
+                port:
+                  number: 8200
+          - path: /ui
+            pathType: Prefix
+            backend:
+              service:
+                name: openbao
+                port:
+                  number: 8200

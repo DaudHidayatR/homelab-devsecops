@@ -59,7 +59,7 @@ Flux bootstraps at `kubernetes/clusters/homelab` and reconciles ordered layers: 
 | Condition | Deployment behavior | Required inputs | What remains manual |
 |---|---|---|---|
 | `flux` CLI is installed, `flux check --pre` passes, and `GITHUB_USER` + `GITHUB_TOKEN` are set | Flux bootstraps from GitHub and reconciles `kubernetes/clusters/homelab` | `GITHUB_USER`, `GITHUB_TOKEN` | OpenBao init/unseal |
-| Flux bootstrap succeeds and `FLUX_GIT_TAG` is set | Flux GitRepository is recreated to watch semver tags instead of branch `main`; the ref carries only the semver selector | `FLUX_GIT_TAG`, for example `>=0.0.0` | Push a semver tag to deploy new changes |
+| Flux bootstrap succeeds | Flux GitRepository watches branch `main`; every merge to `main` reconciles automatically | none | — |
 | Flux prerequisites are missing | Setup stops before applying desired state | working Flux and GitHub credentials | Resolve the reported prerequisite and rerun `make up` |
 | `TAILSCALE_CLIENT_ID` and `TAILSCALE_CLIENT_SECRET` are set | Tailscale namespace/OAuth Secret/operator are installed; OpenBao service is annotated; Serve config/watcher are applied | Tailscale OAuth client credentials | Tailnet Lock signing may still be required via `make tailscale-sign` |
 | Tailscale credentials are absent | Tailscale installation is skipped | none | Use port-forwarding or run `make tailscale` after credentials are configured |
@@ -109,16 +109,7 @@ All component image versions are defined directly in their respective manifests.
 
 To upgrade a component, update both `config.env` and the image field in the corresponding manifest. Version pinning ensures reproducible deployments across environments.
 
-Tag the repository after each validated deployment:
-```bash
-git tag -a v1.0.0 -m "Baseline deployment"
-git push origin v1.0.0
-```
-
-Or use the convenience Makefile target:
-```bash
-make tag v=1.0.1
-```
+No tagging step is required. Flux watches branch `main`; merging a signed PR deploys.
 
 ## GitOps with Flux CD
 
@@ -146,28 +137,16 @@ This project uses [Flux CD](https://fluxcd.io) to automatically reconcile cluste
 | `flux/kustomizations/50-operations.yaml` | Reconciles operational workloads |
 | `flux/kustomizations/60-apps.yaml` | Reconciles sample-app and Headlamp |
 
-### Deployment Model: Semver-Based
+### Deployment Model: Branch-Main (decision 2026-08-31)
 
-This project uses **semver-based deployment via Flux**. Two independent systems control what gets deployed:
+This project uses **branch-main deployment via Flux**. One system controls what gets deployed:
 
 | System | What it watches | Triggers deploy on `main` push? |
 |---|---|---|
-| **GitHub Actions CI/CD** | `v*` tag pushes only | No (deploy job is `skipped`) |
-| **Flux Source Controller** | Semver tags on Git repo | **No (watches semver, not branch)** |
+| **GitHub Actions CI/CD** | `main` pushes | No — CI validates only; the deploy job runs against the declared branch-main source |
+| **Flux Source Controller** | Branch `main` | **Yes** |
 
-Flux's `GitRepository` is configured with `ref.semver.range: ">=0.0.0"` — it only reconciles when new semver tags appear. Pushing to `main` runs CI/CD validation but does **not** trigger deployment through either path.
-
-Set `FLUX_GIT_TAG` in `config.env` to the semver range:
-
-```bash
-FLUX_GIT_TAG=">=0.0.0"
-```
-
-In semver mode:
-- Pushes to `main` run scanning only — no deploy.
-- Only `git tag v1.0.1 && git push origin v1.0.1` deploys.
-- Instant rollback: `flux reconcile source git flux-system --source-ref=v1.0.0`
-- Feature branches are disposable after PR merge — only `main` remains.
+Flux's `GitRepository` watches `ref.branch: main`. Every signed merge to `main` reconciles automatically; rollback is `git revert` on `main`. There is no runtime ref switching, no tag selector, and no `make tag` flow.
 
 This is the recommended mode for a solo-dev GitOps workflow. If you need to change the range (e.g., to `">=1.0.0 <2.0.0"`), update `config.env` and re-run `make up`.
 
@@ -208,8 +187,8 @@ production:
 1. You push a `v*` tag → the [IaC Security Pipeline](.github/workflows/IaC.yml) runs.
 2. Security gates pass (lint, secrets, misconfig, policy).
 3. The deploy job connects the runner to the tailnet with `tag:ci-runner`.
-4. The job patches Flux's `GitRepository` to `ref.semver.range: ">=0.0.0"` (one-time, idempotent), then applies Kustomizations.
-5. Flux's source controller detects the new semver tag and begins reconciliation.
+4. The job declares the branch-main `GitRepository` (idempotent `kubectl apply`), then applies Kustomizations.
+5. Flux's source controller fetches `main` and reconciles.
 6. The job waits for both Kustomizations to report `Ready`.
 7. A smoke test prints pod status and Flux resource health.
 
@@ -392,19 +371,19 @@ Success is observable when status reports `initialized: true`, `sealed: false`, 
 
 Admin services are annotated for automatic tailnet exposure via the Tailscale Kubernetes Operator.
 
-Primary path: set `TAILSCALE_CLIENT_ID` and `TAILSCALE_CLIENT_SECRET` in `config.env`, then run:
+Primary path: encrypt the operator OAuth credentials once with SOPS (`make tailscale-encrypt` — see `tailscale/README.md`), or set `TAILSCALE_CLIENT_ID`/`TAILSCALE_CLIENT_SECRET` in `config.env` for the first bootstrap, then run:
 
 ```bash
 make up
 ```
 
-When credentials are present, `scripts/homelab cluster up` creates the Tailscale namespace and OAuth Secret, installs the operator, annotates OpenBao, configures Tailscale Serve on proxy pods, and deploys the Serve watcher.
+The operator install is Flux-owned (HelmRelease `tailscale-operator`, chart 1.102.3). `scripts/homelab cluster up` delivers the OAuth Secret (SOPS first via `make tailscale-encrypt`, env fallback) and verifies the rollout; tailnet access is declared with tailscale-class Ingresses (`headlamp-tailnet`, `openbao-tailnet`) instead of imperative `tailscale serve` calls.
 
 Manual Tailscale install and Serve repair:
 
 ```bash
-make tailscale
-scripts/homelab tailscale configure-serve
+make tailscale          # verify the Flux-managed operator
+scripts/homelab tailscale status
 scripts/homelab tailscale check
 ```
 
@@ -441,10 +420,10 @@ Once the operator is running, access admin UIs directly from any device on your 
    ```
 2. The target validates operator identity keys. With a live cluster, it atomically backs up Tailscale Secrets before deleting the cluster and refuses to continue if required identity is missing.
 3. It creates a bare kind cluster, restores `tailscale/operator` before the operator starts, then runs normal Flux bootstrap and workload reconciliation.
-4. If Tailnet Lock requires it, sign newly registered proxy nodes, then reconcile Serve:
+4. If Tailnet Lock requires it, sign newly registered proxy nodes:
    ```bash
    scripts/homelab tailscale sign --sudo
-   scripts/homelab tailscale configure-serve
+   scripts/homelab tailscale status
    ```
 
 **Success checks**
@@ -462,7 +441,7 @@ If Tailscale devices were deleted manually in the Tailscale Admin Console, reset
 ```bash
 scripts/homelab tailscale reset
 scripts/homelab tailscale sign
-scripts/homelab tailscale configure-serve
+scripts/homelab tailscale status
 scripts/homelab tailscale check
 ```
 
@@ -482,16 +461,7 @@ For a full VPS rebuild/recreate, also preserve the host Tailscale identity from 
 
 ### Future Public Access
 
-To expose a service to the public internet, change the annotation from:
-```yaml
-tailscale.com/expose: "true"
-```
-to:
-```yaml
-tailscale.com/funnel: "true"
-```
-
-This uses the same operator; no new infrastructure is needed.
+To expose a service to the public internet, add the `tailscale.com/funnel: "true"` annotation to its Tailscale Ingress. This uses the same operator; no new infrastructure is needed.
 
 ## Tear Down
 To destroy the local infrastructure and free up resources, use the lifecycle command:

@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: tailscale
+  labels:
+    # The operator manages proxy pods with elevated networking needs; the
+    # upstream operator manifest does not ship a PSA-restricted guarantee.
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/audit: baseline
+    pod-security.kubernetes.io/warn: baseline

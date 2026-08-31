@@ -7,9 +7,6 @@ metadata:
     app: headlamp
     env: development
     owner: devsecops
-  annotations:
-    tailscale.com/expose: "true"
-    tailscale.com/serve: "true"
 spec:
   ports:
     - name: http

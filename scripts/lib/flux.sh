@@ -16,22 +16,25 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/kubernetes.sh"
 : "${FLUX_BOOTSTRAP_MODE:=auto}"
 
 flux::reconcile() {
-  log::info "Reconciling Flux infrastructure before applications."
+  log::info "Reconciling Flux layers before applications."
   flux reconcile source git flux-system
-  flux reconcile kustomization infrastructure --with-source
-  flux reconcile kustomization apps
+  local layer
+  for layer in bootstrap cluster-resources platform openbao-config cluster-policies operations apps; do
+    flux reconcile kustomization "${layer}"
+  done
   flux get kustomizations
   kubectl wait --for=condition=Ready nodes --all --timeout=120s
   kubectl get pods -A
   log::success "Flux reconciliation and cluster workload checks completed."
 }
 
+# Branch-main GitOps (decision 2026-08-31): Flux watches the repository's
+# main branch. There is no runtime ref switching, no tag selector, and no
+# 'make tag' flow; every push to main is reconciled by the source controller.
 flux::bootstrap_or_apply() {
   local mode_var_name="$1"
-  local semver_var_name="$2"
 
   printf -v "${mode_var_name}" '%s' "not-started"
-  printf -v "${semver_var_name}" '%s' "disabled"
 
   if ! command -v flux >/dev/null 2>&1; then
     common::die "Flux CLI is required. Install it from https://fluxcd.io/flux/installation/; manifests will not be applied directly."
@@ -75,26 +78,5 @@ flux::bootstrap_or_apply() {
     printf -v "${mode_var_name}" '%s' "Flux GitOps"
   else
     common::die "Flux bootstrap manifests are not committed at '${FLUX_CLUSTER_PATH}/flux-system'. Protected branch flow: run 'flux bootstrap github --owner=${GITHUB_USER:-OWNER} --repository=${FLUX_GITHUB_REPOSITORY:-REPOSITORY} --branch=flux-bootstrap --path=${FLUX_CLUSTER_PATH} --personal', then merge that branch through a signed pull request and rerun make up. Set FLUX_BOOTSTRAP_MODE=github only when direct pushes are allowed."
-  fi
-
-  if [[ -n "${FLUX_GIT_TAG:-}" ]]; then
-    log::info "Switching Flux to semver-based deployment (range=${FLUX_GIT_TAG})."
-    # Replace the branch-tracked GitRepository with an explicit semver ref in
-    # one atomic operation. Recreate (not patch) so the ref object is built
-    # from scratch: it carries exactly one selector (--tag-semver) and never
-    # retains a stale branch/tag/commit key. The configuration selects both
-    # a bootstrap branch (FLUX_GITHUB_BRANCH) and a semver range
-    # (FLUX_GIT_TAG); the semver selector resolves that ambiguity by fully
-    # replacing the branch selector for spec.ref — the branch stays in use
-    # only for the initial bootstrap. Fail loudly if the switch does not apply.
-    kubectl delete gitrepository flux-system -n flux-system --ignore-not-found
-    flux create source git flux-system \
-      --url="https://github.com/${GITHUB_USER}/${FLUX_GITHUB_REPOSITORY}" \
-      --tag-semver="${FLUX_GIT_TAG}" \
-      --interval=1m \
-      --namespace=flux-system
-    log::success "Flux now watches semver tags (${FLUX_GIT_TAG}) instead of branch '${FLUX_GITHUB_BRANCH}'."
-    printf -v "${semver_var_name}" '%s' "enabled (${FLUX_GIT_TAG})"
-    log::info "Push a semver tag to deploy: make tag v=0.0.1"
   fi
 }

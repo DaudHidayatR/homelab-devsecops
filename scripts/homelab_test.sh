@@ -135,55 +135,38 @@ PY
     return 1
   fi
 
-  # P1: the Flux semver switch must be atomic (recreate with flux create,
-  # not a bare kubectl patch that can leave a half-applied ref)
+  # P1 (branch-main decision 2026-08-31): Flux must watch the main branch.
+  # No runtime ref switching, no tag selectors, no merge-patched refs.
   python3 - "${root}/scripts/lib/flux.sh" "${root}/.github/workflows/IaC.yml" <<'PY'
 import sys
 
 source = open(sys.argv[1]).read()
-if 'FLUX_GIT_TAG' in source:
-    assert 'kubectl patch gitrepository' not in source, \
-        'Flux semver switch must not use a bare kubectl patch'
-    assert 'flux create source git flux-system' in source, \
-        'Flux semver switch must recreate the source atomically'
-    assert '--tag-semver=' in source, \
-        'Flux semver switch must set tag-semver'
+assert 'FLUX_GIT_TAG' not in source, \
+    'Flux must not implement runtime semver ref switching'
+assert '--tag-semver' not in source, \
+    'Flux must not create semver-tag sources'
+assert 'kubectl patch gitrepository' not in source, \
+    'Flux must not merge-patch GitRepository spec.ref'
+assert '--branch="${FLUX_GITHUB_BRANCH}"' in source, \
+    'Flux bootstrap must pin the configured branch'
 
-# CI deploy job: the flux-system GitRepository must be switched to semver
-# by recreating it (flux create source git --tag-semver), never by a merge
-# patch that could leave a stale branch/tag/commit key next to semver.
 ci = open(sys.argv[2]).read()
-if 'kubectl patch gitrepository flux-system' in ci:
-    raise AssertionError('CI must not merge-patch GitRepository spec.ref')
-if 'flux create source git flux-system' in ci:
-    assert '--tag-semver=' in ci, \
-        'CI flux source recreation must set tag-semver'
-    assert 'kubectl delete gitrepository flux-system' in ci, \
-        'CI flux source recreation must replace the object atomically'
+assert 'semver:' not in ci and '--tag-semver' not in ci, \
+    'CI deploy must not configure semver sources'
+assert 'branch: main' in ci, \
+    'CI deploy must declare the branch-main GitRepository'
+assert 'kubectl patch gitrepository flux-system' not in ci, \
+    'CI must not merge-patch GitRepository spec.ref'
 PY
 
-  # P1: the local Flux ref must carry exactly one selector. Semver mode
-  # recreates the source with only --tag-semver, never merging --branch into
-  # the same spec.ref, and never merge-patching the existing object (which
-  # would retain a stale branch/tag/commit key next to semver).
+  # P1: the branch selector belongs exclusively to the bootstrap source
+  # (branch-main decision 2026-08-31). Flux never merge-patches refs and
+  # never recreates the source with a different selector at runtime.
   python3 - "${root}/scripts/lib/flux.sh" <<'PY'
 import sys
 
 source = open(sys.argv[1]).read()
 
-# The semver recreate block must not also pass --branch: spec.ref must carry
-# exactly one selector (semver), replacing the branch selector entirely.
-semver_block = source[source.index('--tag-semver='):source.index('--interval=1m')]
-assert '--branch=' not in semver_block, \
-    'Flux semver switch must not pass --branch alongside --tag-semver'
-
-# A merge-patch (--type merge) that only sets spec.ref.semver would retain a
-# stale branch key from the existing object; the recreate path must not use it.
-assert '--type merge' not in source, \
-    'Flux semver switch must replace spec.ref atomically, never merge keys'
-
-# The branch selector belongs exclusively to the initial bootstrap, where it
-# is the single selector for the fresh ref created by flux bootstrap.
 bootstrap_args = source[source.index('flux bootstrap github'):source.index('--personal')]
 assert '--branch=' in bootstrap_args, \
     'Flux bootstrap must keep its single branch selector'
@@ -199,8 +182,8 @@ assert 'elif [[ "${FLUX_BOOTSTRAP_MODE}" == github ]]' in source, \
 PY
 
   # P1: Tailscale helpers must define every symbol the command layer calls,
-  # and the install ordering must be backup -> install -> restore (restore
-  # guarded against running after the Deployment exists).
+  # and the verification flow must deliver the OAuth Secret before
+  # verifying the Flux-managed operator (Flux owns the install itself).
   python3 - "${root}/scripts/commands/tailscale.sh" "${root}/scripts/lib/tailscale.sh" <<'PY'
 import re
 import sys
@@ -213,12 +196,12 @@ defs = set(re.findall(r'tailscale::([a-z_0-9]+)\(\)', lib))
 missing = calls - defs
 assert not missing, f'undefined Tailscale symbols: {sorted(missing)}'
 
-# Ordering: backup must appear before install_operator, and restore after it.
+# Ordering: OAuth Secret delivery must appear before install_operator
+# (Flux owns the install; the shell delivers the Secret and verifies).
 cmd_main = cmd[cmd.index('main()'):]
-assert cmd_main.index('tailscale::backup_operator_identity') < \
-       cmd_main.index('tailscale::install_operator') < \
-       cmd_main.index('tailscale::restore_operator_identity'), \
-    'Tailscale install ordering must be backup -> install -> restore'
+assert cmd_main.index('tailscale::ensure_deploy_secret') < \
+       cmd_main.index('tailscale::install_operator'), \
+    'Tailscale verification ordering must be Secret delivery -> operator verify'
 
 # Restore must be guarded against running after the Deployment exists.
 assert 'Refusing to restore identity after the Tailscale operator has started' in lib, \

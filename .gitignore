@@ -24,3 +24,5 @@ docs/openbao-integration.md
 .runtime-backups/
 openbao-init.json
 .runtime/
+# Tailscale operator OAuth plaintext (SOPS flow) - never commit
+tailscale/operator-oauth.local.yaml

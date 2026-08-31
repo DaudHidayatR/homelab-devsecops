@@ -1,0 +1,14 @@
+# Tailscale operator Helm values (Flux-managed).
+#
+# Credentials are NOT set here: the chart (v1.102.3) mounts the pre-created
+# 'operator-oauth' Secret via CLIENT_ID_FILE/CLIENT_SECRET_FILE when the
+# values.oauth block is unset. The Secret is delivered out-of-band:
+#   - Primary: SOPS-encrypted source -> `make tailscale-encrypt` -> SOPS
+#     decrypt during `make up` (see tailscale/README.md at the repo root).
+#   - First local bootstrap: TAILSCALE_CLIENT_ID / TAILSCALE_CLIENT_SECRET
+#     in config.env (the shell creates the Secret once, before this
+#     HelmRelease is reconciled).
+operatorConfig:
+  # Tag operator-created tailnet devices so tailnet ACLs can target them.
+  defaultTags:
+    - "tag:k8s"

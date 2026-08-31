@@ -4,3 +4,4 @@ kind: Kustomization
 resources:
   - openbao/
   - istio/
+  - tailscale/
