@@ -2,6 +2,7 @@
 set -Eeuo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
+
 command_tailscale_install() {
   (
 # Verify the Flux-managed Tailscale Kubernetes Operator installation.
@@ -43,7 +44,6 @@ while (($# > 0)); do
       common::die "Unknown argument: $1"
       ;;
   esac
-  shift
 done
 
 main() {
@@ -317,10 +317,20 @@ log::success "All Tailscale access checks passed."
 
 command_tailscale_status() {
   # Serve configuration moved to declarative tailscale-class Ingresses
-  # (audit v2 remediation, 2026-08-31). Show proxy state instead.
-  kubectl get ingress -A 2>/dev/null || true
-  kubectl get pods -n "${TAILSCALE_NAMESPACE:-tailscale}" \
-    -l tailscale.com/managed=true -o wide || true
+  # (audit v2 remediation, 2026-08-31). Show proxy state instead. Self-sourcing
+  # subshell (same pattern as command_tailscale_restore) so TAILSCALE_NAMESPACE,
+  # including any config.env override, is set and read in the same scope.
+  (
+    set -Eeuo pipefail
+    # shellcheck source=scripts/lib/common.sh
+    source "${ROOT_DIR}/scripts/lib/common.sh"
+    common::load_config "${ROOT_DIR}/config.env"
+    # shellcheck source=scripts/lib/tailscale.sh
+    source "${ROOT_DIR}/scripts/lib/tailscale.sh"
+    kubectl get ingress -A 2>/dev/null || true
+    kubectl get pods -n "${TAILSCALE_NAMESPACE}" \
+      -l tailscale.com/managed=true -o wide || true
+  )
 }
 
 command_tailscale_restore() {

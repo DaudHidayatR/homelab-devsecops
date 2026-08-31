@@ -7,11 +7,6 @@
 # operator manifests and NEVER patches the operator deployment; it only
 # delivers the OAuth Secret out-of-band and verifies the rollout.
 #
-# Ownership contract (architecture audit v2 remediation, 2026-08-31):
-# Flux declares and owns the Tailscale operator installation via the
-# platform/tailscale HelmRelease. The shell layer NEVER applies upstream
-# operator manifests and NEVER patches the operator deployment; it only
-# delivers the OAuth Secret out-of-band and verifies the rollout.
 
 if [[ -n "${KIND_TAILSCALE_SH_LOADED:-}" ]]; then
   return 0
@@ -47,44 +42,6 @@ tailscale::ensure_oauth_secret() {
     --namespace "${TAILSCALE_NAMESPACE}" \
     --from-literal=client_id="${TAILSCALE_CLIENT_ID}" \
     --from-literal=client_secret="${TAILSCALE_CLIENT_SECRET}"
-}
-
-# The Flux-managed HelmRelease mounts this Secret, so it must exist before
-# the platform layer reconciles. Delivery order (decision 2026-08-31):
-#   1. SOPS-encrypted source tailscale/operator-oauth.enc.yaml (preferred)
-#   2. TAILSCALE_CLIENT_ID / TAILSCALE_CLIENT_SECRET env (first bootstrap)
-# Returns non-fatal (1) when neither source is available so 'make up' can
-# continue; the operator HelmRelease simply stays unready until delivered.
-tailscale::ensure_deploy_secret() {
-  tailscale::ensure_namespace
-  if k8s::secret_exists "${TAILSCALE_NAMESPACE}" "${TAILSCALE_OPERATOR_OAUTH_SECRET}"; then
-    return 0
-  fi
-
-  local enc_file="${COMMON_REPO_ROOT}/tailscale/operator-oauth.enc.yaml"
-  if [[ -s "${enc_file}" ]] && command -v sops >/dev/null 2>&1; then
-    local plain
-    plain="$(mktemp "${TMPDIR:-/tmp}/operator-oauth.XXXXXX")"
-    chmod 0600 "${plain}"
-    if sops -d "${enc_file}" >"${plain}" 2>/dev/null; then
-      kubectl apply -f "${plain}" >/dev/null
-      rm -f "${plain}"
-      log::success "Applied ${TAILSCALE_NAMESPACE}/${TAILSCALE_OPERATOR_OAUTH_SECRET} from the SOPS-encrypted source."
-      return 0
-    fi
-    rm -f "${plain}"
-    log::warn "sops decryption failed for tailscale/operator-oauth.enc.yaml (placeholder recipient?); falling back to environment credentials."
-  elif [[ -s "${enc_file}" ]]; then
-    log::warn "tailscale/operator-oauth.enc.yaml exists but sops is not installed; falling back to environment credentials."
-  fi
-
-  if [[ -n "${TAILSCALE_CLIENT_ID:-}" && -n "${TAILSCALE_CLIENT_SECRET:-}" ]]; then
-    tailscale::ensure_oauth_secret
-    return 0
-  fi
-
-  log::warn "No Tailscale OAuth credentials available (no decryptable SOPS source, no env). The Flux-managed operator HelmRelease stays unready until Secret ${TAILSCALE_NAMESPACE}/${TAILSCALE_OPERATOR_OAUTH_SECRET} is delivered."
-  return 1
 }
 
 # The Flux-managed HelmRelease mounts this Secret, so it must exist before
@@ -230,30 +187,6 @@ tailscale::wait_operator() {
 # Verify the Flux-managed operator installation. The platform/tailscale
 # HelmRelease is the single source of truth; applying upstream manifests or
 # patching the deployment here would fight the Flux reconciler.
-tailscale::proxy_pods() {
-  kubectl get pods -n "${TAILSCALE_NAMESPACE}" \
-    -l tailscale.com/managed=true,tailscale.com/parent-resource-type=svc \
-    -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null || true
-}
-
-tailscale::wait_proxy_pods() {
-  local attempts="${1:-30}"
-  local delay="${2:-5}"
-  local proxy_count
-
-  for _i in $(seq 1 "${attempts}"); do
-    proxy_count="$(tailscale::proxy_pods | grep -cv 'operator-' || true)"
-    if [[ "${proxy_count}" -gt 0 ]]; then
-      log::success "Found ${proxy_count} Tailscale proxy pod(s)."
-      return 0
-    fi
-    sleep "${delay}"
-  done
-
-  log::warn "No Tailscale proxy pods found after waiting. Ingress-backed proxies appear once Flux reconciles the declared Ingresses; check 'kubectl get ingress -A'."
-  return 1
-}
-
 # Verify the Flux-managed operator installation. The platform/tailscale
 # HelmRelease is the single source of truth; applying upstream manifests or
 # patching the deployment here would fight the Flux reconciler.
