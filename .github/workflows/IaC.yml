@@ -244,6 +244,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Validate Tailscale auth key
+        env:
+          TS_AUTHKEY: ${{ secrets.TS_AUTHKEY }}
+        run: |
+          case "$TS_AUTHKEY" in
+            tskey-auth-*) ;;
+            *)
+              echo "ERROR: production TS_AUTHKEY must be a pre-signed Tailscale auth key (tskey-auth-...)."
+              exit 1
+              ;;
+          esac
+
       - name: Connect to Tailscale
         uses: tailscale/github-action@v4
         with:
@@ -267,13 +279,21 @@ jobs:
 
       - name: Verify cluster connectivity
         run: |
+          status="$(tailscale status)"
+          printf '%s\n' "$status"
+          if tailscale status --json | python3 -c \
+            'import json,sys; health=json.load(sys.stdin).get("Health", []);' \
+            'sys.exit(not any("locked out" in message for message in health))'; then
+            echo "ERROR: the GitHub runner is locked out by Tailnet Lock."
+            echo "Replace TS_AUTHKEY with the output of 'tailscale lock sign <unsigned-auth-key>'."
+            exit 1
+          fi
           server="$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}')"
           host_port="${server#https://}"
           host="${host_port%:*}"
           port="${host_port##*:}"
           echo "Kubernetes API endpoint: ${host}:${port}"
-          tailscale status
-          tailscale ping --timeout=10s "${host}"
+          tailscale ping --until-direct=false --c=1 --timeout=10s "${host}"
           timeout 10 bash -c "</dev/tcp/${host}/${port}" || {
             echo "ERROR: ${host}:${port} is not reachable over the tailnet."
             echo "Verify the VPS Tailscale IP and ACL/Tailnet Lock approval."
