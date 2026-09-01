@@ -39,7 +39,7 @@ on:
       - ".trivyignore"
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ startsWith(github.ref, 'refs/tags/v') && 'production' || github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -305,6 +305,8 @@ jobs:
       - name: Install Flux controllers and source
         env:
           REPOSITORY_URL: https://github.com/${{ github.repository }}.git
+          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_SHA: ${{ github.sha }}
         run: |
           if ! kubectl get crd gitrepositories.source.toolkit.fluxcd.io >/dev/null 2>&1; then
             echo "Flux CRDs not found. Installing Flux controllers..."
@@ -316,9 +318,8 @@ jobs:
           kubectl wait --for=condition=Available deployment/kustomize-controller -n flux-system --timeout=180s
           kubectl wait --for=condition=Available deployment/helm-controller -n flux-system --timeout=180s
 
-          # Branch-main deployment model (decision 2026-08-31): the source
-          # watches the repository main branch. Declared idempotently so a
-          # pre-existing source with any other ref converges to this state.
+          # A production tag selects one immutable release. Flux remains the
+          # deployment owner; CI only converges its source and reconciles it.
           kubectl apply -f - <<EOF
           apiVersion: source.toolkit.fluxcd.io/v1
           kind: GitRepository
@@ -329,9 +330,17 @@ jobs:
             interval: 1m
             url: ${REPOSITORY_URL}
             ref:
-              branch: main
+              tag: ${RELEASE_TAG}
           EOF
           kubectl wait gitrepository/flux-system -n flux-system --for=condition=Ready --timeout=5m
+          revision="$(kubectl get gitrepository flux-system -n flux-system -o jsonpath='{.status.artifact.revision}')"
+          case "$revision" in
+            *"${RELEASE_SHA}"*) ;;
+            *)
+              echo "ERROR: Flux fetched '$revision', expected release ${RELEASE_TAG}@${RELEASE_SHA}."
+              exit 1
+              ;;
+          esac
 
           # The repository is public, so the source is fetched unauthenticated
           # over HTTPS. Remove any stale token secret a previous deploy

@@ -59,7 +59,7 @@ Flux bootstraps at `kubernetes/clusters/homelab` and reconciles ordered layers: 
 | Condition | Deployment behavior | Required inputs | What remains manual |
 |---|---|---|---|
 | `flux` CLI is installed, `flux check --pre` passes, and `GITHUB_USER` + `GITHUB_TOKEN` are set | Flux bootstraps from GitHub and reconciles `kubernetes/clusters/homelab` | `GITHUB_USER`, `GITHUB_TOKEN` | OpenBao init/unseal |
-| Flux bootstrap succeeds | Flux GitRepository watches branch `main`; every merge to `main` reconciles automatically | none | — |
+| Flux bootstrap succeeds | Flux GitRepository watches the configured ref; production CI pins it to the pushed `v*` tag | none | — |
 | Flux prerequisites are missing | Setup stops before applying desired state | working Flux and GitHub credentials | Resolve the reported prerequisite and rerun `make up` |
 | `TAILSCALE_CLIENT_ID` and `TAILSCALE_CLIENT_SECRET` are set | Tailscale namespace/OAuth Secret/operator are installed; OpenBao service is annotated; Serve config/watcher are applied | Tailscale OAuth client credentials | Tailnet Lock signing may still be required via `make tailscale-sign` |
 | Tailscale credentials are absent | Tailscale installation is skipped | none | Use port-forwarding or run `make tailscale` after credentials are configured |
@@ -186,20 +186,17 @@ production:
 
 1. You push a `v*` tag → the [IaC Security Pipeline](.github/workflows/IaC.yml) runs.
 2. Security gates pass (lint, secrets, misconfig, policy).
-3. The deploy job connects the runner to the tailnet with `tag:ci-runner`.
-4. The job declares the branch-main `GitRepository` (idempotent `kubectl apply`), then applies Kustomizations.
-5. Flux's source controller fetches `main` and reconciles.
-6. The job waits for both Kustomizations to report `Ready`.
+3. The deploy job connects the ephemeral runner using the pre-signed auth key's restricted CI tag.
+4. The job points `GitRepository/flux-system` at the pushed tag and verifies the fetched artifact contains that tag's commit SHA.
+5. Flux reconciles the ordered Kustomizations from that immutable release.
+6. The job waits for every layer to report `Ready`.
 7. A smoke test prints pod status and Flux resource health.
 
 ### One-Time Setup
 
 - **[VPS Tailscale Setup](../../../document-project/web-documentasi/devsecops-homelab/template-wiki/Wiki/Concepts/network-and-trust-boundaries.md)** — Install Tailscale on the VPS host,
   get its Tailscale IP, and verify connectivity.
-- **CI Deploy Secrets** — Set production secret `TS_AUTHKEY` to an ephemeral,
-  reusable, pre-signed Tailscale auth key (`tskey-auth-...`) because Tailnet Lock is
-  enabled. An API key (`ks...`) is not a node auth key and will be rejected. Also encode
-  the kubeconfig and configure it as the production `KUBECONFIG` secret.
+- **CI Deploy Secrets** — Generate a Tailscale auth key with **Reusable**, **Ephemeral**, and **Pre-approved** enabled and the restricted CI tag, sign that auth key once on a trusted Tailnet Lock signing node, and store the complete generated output as the production environment secret `TS_AUTHKEY`. Also encode the kubeconfig and configure it as the production environment secret `KUBECONFIG`. Rotate the auth key before its configured expiry; never sign individual GitHub runner nodes.
 - **[Tailscale VPS Strategy](../../../document-project/web-documentasi/devsecops-homelab/template-wiki/Wiki/Entities/tailscale.md)** — Full reference including
   security model, TLS cert handling, and troubleshooting.
 
