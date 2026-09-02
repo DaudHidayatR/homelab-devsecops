@@ -284,7 +284,9 @@ jobs:
           host="${host_port%:*}"
           port="${host_port##*:}"
           echo "Kubernetes API endpoint: ${host}:${port}"
-          tailscale ping --until-direct=false --c=1 --timeout=10s "${host}"
+          # TSMP/peer-api ping is diagnostic: tailnet ACLs can allow TCP/6443
+          # without allowing ping. The API socket and kubectl are authoritative.
+          tailscale ping --until-direct=false --c=1 --timeout=10s "${host}" || true
           timeout 10 bash -c "</dev/tcp/${host}/${port}" || {
             echo "ERROR: ${host}:${port} is not reachable over the tailnet."
             echo "Verify the VPS Tailscale IP and ACL/Tailnet Lock approval."
