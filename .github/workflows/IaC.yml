@@ -279,15 +279,6 @@ jobs:
 
       - name: Verify cluster connectivity
         run: |
-          status="$(tailscale status)"
-          printf '%s\n' "$status"
-          if tailscale status --json | python3 -c \
-            'import json,sys; health=json.load(sys.stdin).get("Health", []);' \
-            'sys.exit(not any("locked out" in message for message in health))'; then
-            echo "ERROR: the GitHub runner is locked out by Tailnet Lock."
-            echo "Replace TS_AUTHKEY with the output of 'tailscale lock sign <unsigned-auth-key>'."
-            exit 1
-          fi
           server="$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}')"
           host_port="${server#https://}"
           host="${host_port%:*}"
