@@ -143,8 +143,8 @@ PY
     return 1
   fi
 
-  # P1 (branch-main decision 2026-08-31): Flux must watch the main branch.
-  # No runtime ref switching, no tag selectors, no merge-patched refs.
+  # Production deploys pin Flux to the immutable release tag; local bootstrap
+  # remains branch-main. Neither path may mutate the source with a patch.
   python3 - "${root}/scripts/lib/flux.sh" "${root}/.github/workflows/IaC.yml" <<'PY'
 import sys
 
@@ -160,11 +160,13 @@ assert '--branch="${FLUX_GITHUB_BRANCH}"' in source, \
 
 ci = open(sys.argv[2]).read()
 assert 'semver:' not in ci and '--tag-semver' not in ci, \
-    'CI deploy must not configure semver sources'
-assert 'branch: main' in ci, \
-    'CI deploy must declare the branch-main GitRepository'
+    'CI deploy must not configure a moving semver source'
+assert 'tag: ${RELEASE_TAG}' in ci and 'RELEASE_SHA: ${{ github.sha }}' in ci, \
+    'CI deploy must declare and verify its immutable release source'
 assert 'kubectl patch gitrepository flux-system' not in ci, \
     'CI must not merge-patch GitRepository spec.ref'
+assert 'tailscale ping --until-direct=false --c=1 --timeout=10s "${host}" || true' in ci, \
+    'TSMP ping must remain diagnostic; TCP and kubectl determine API reachability'
 PY
 
   # P1: the branch selector belongs exclusively to the bootstrap source
