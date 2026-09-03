@@ -5,9 +5,11 @@ metadata:
   namespace: headlamp
   annotations:
     # Tailscale provides private HTTPS at headlamp.<tailnet>.ts.net.
-    tailscale.com/hostname: headlamp
 spec:
   ingressClassName: tailscale
+  tls:
+    - hosts:
+        - headlamp
   rules:
     - http:
         paths:
