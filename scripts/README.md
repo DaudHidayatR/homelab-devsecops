@@ -43,7 +43,7 @@ scripts/
 | `scripts/homelab tailscale install` | Install the Kubernetes operator |
 | `scripts/homelab tailscale reset` | Reset stale proxy identities |
 | `scripts/homelab tailscale sign --sudo` | Sign proxy nodes for Tailnet Lock |
-| `scripts/homelab tailscale check` | Check DNS, HTTPS, and Serve access |
+| `scripts/homelab tailscale check` | Check DNS, HTTPS, and declared Ingress access |
 | `scripts/homelab tailscale status` | Show Tailscale ingresses and proxy pods |
 | `scripts/homelab tailscale restore <backup>` | Restore operator identity |
 | `scripts/homelab security scan [scanner]` | Run all scanners or one named scanner |
@@ -85,7 +85,7 @@ Automated steps:
 2. Restore and validate any saved `tailscale/operator` identity before operator startup.
 3. Create the optional `operator-oauth` Secret from configured OAuth credentials.
 4. Install the Tailscale Kubernetes Operator when missing.
-5. Annotate the main OpenBao Service for tailnet exposure.
+5. Tailscale-class Ingresses (`headlamp-tailnet`, `openbao-tailnet`) declare tailnet access.
 6. Wait for operator-managed proxy pods.
 7. Verify declared access with `scripts/homelab tailscale status` (ingresses + proxy pods).
 
@@ -97,7 +97,7 @@ Use this when Tailscale credentials were not present during `make up`, or when y
 
 ```bash
 make tailscale
-scripts/homelab tailscale configure-serve
+scripts/homelab tailscale status
 scripts/homelab tailscale check
 ```
 
@@ -120,7 +120,7 @@ Ordered recovery:
 1. Run `BACKUP_DIR=.runtime-backups/tailscale/<timestamp> make recover`.
 2. With a live cluster, recovery validates and backs up live Secret `tailscale/operator`, deletes the cluster, and uses that fresh backup instead of the older supplied path.
 3. Recovery creates a bare kind cluster, restores identity before operator startup, and bootstraps Flux and workloads. Missing or malformed identity aborts the operation.
-4. If required, run `scripts/homelab tailscale sign --sudo`, then `scripts/homelab tailscale configure-serve`.
+4. If required, run `scripts/homelab tailscale sign --sudo`, then re-check declared access with `scripts/homelab tailscale status`.
 5. Verify the operator rollout and identity:
    ```bash
    kubectl rollout status deployment/operator -n tailscale --timeout=120s
@@ -137,7 +137,7 @@ Proxy identities are not restored by recovery (see above), so after a rebuild th
 ```bash
 scripts/homelab tailscale reset
 scripts/homelab tailscale sign --sudo
-scripts/homelab tailscale configure-serve
+scripts/homelab tailscale status
 scripts/homelab tailscale check
 ```
 
@@ -169,7 +169,7 @@ kubectl get pods -n tailscale -l tailscale.com/managed=true
 List exposed services:
 
 ```bash
-kubectl get ingress -A'
+kubectl get ingress -A
 ```
 
 Run the project access check:
@@ -190,8 +190,8 @@ Once proxy DNS and Serve are ready, admin UIs are available from devices allowed
 
 | Service | Tailnet URL pattern |
 |---|---|
-| Headlamp | `https://kube-system-headlamp.<tailnet>.ts.net` |
-| OpenBao | `https://openbao-openbao.<tailnet>.ts.net/ui/` |
+| Headlamp | `https://headlamp.<tailnet>.ts.net` |
+| OpenBao | `https://openbao.<tailnet>.ts.net/ui/` |
 
 ## Security notes
 
@@ -203,13 +203,14 @@ Once proxy DNS and Serve are ready, admin UIs are available from devices allowed
 
 ## File map
 
-| File | Purpose |
+| Command | Purpose |
 |---|---|
-| `install-operator.sh` | Manual operator installation fallback |
-| `restore-state.sh` | Restore saved Tailscale operator identity state (operator.json + optional operator-oauth.json) |
-| `reset-proxies.sh` | Remove stale proxy identity state so proxies can register fresh |
-| `sign-proxies.sh` | Sign new proxy devices when Tailnet Lock is enabled |
-| `check-access.sh` | Validate DNS, HTTPS, and Serve access expectations |
+| `scripts/homelab tailscale install` | Manual operator install/verify fallback (also `make tailscale`) |
+| `scripts/homelab tailscale restore <backup>` | Restore saved operator identity (operator.json + optional operator-oauth.json) |
+| `scripts/homelab tailscale reset` | Remove stale proxy identity state so proxies can register fresh |
+| `scripts/homelab tailscale sign --sudo` | Sign new proxy devices when Tailnet Lock is enabled |
+| `scripts/homelab tailscale check` | Validate DNS, HTTPS, and declared Ingress access |
+| `scripts/homelab tailscale status` | Show Tailscale ingresses and operator-managed proxy pods |
 | `.runtime-backups/tailscale/<timestamp>/operator.json` | Authoritative operator identity backup, written by `cluster down` / `tailscale reset`; the only required recovery input |
 | `.runtime-backups/tailscale/<timestamp>/operator-oauth.json` | Optional OAuth config backup; restored when present |
 | `.runtime-backups/tailscale/<timestamp>/all-secrets.json` | Full-namespace Secret snapshot for forensics and the `tailscale reset` flow; **not consumed by recovery** (proxy `ts-*` identities are not restored) |

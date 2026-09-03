@@ -10,7 +10,7 @@ Usage: scripts/homelab <domain> <command> [arguments]
 Domains and commands:
   cluster     up | down | recover | info
   openbao     bootstrap | policies | status | create-user | create-approle
-  tailscale   install | reset | sign | check | configure-serve | restore
+  tailscale   install | reset | sign | check | status | restore
   security    scan
 USAGE
 }

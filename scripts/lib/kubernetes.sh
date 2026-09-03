@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Shared Kubernetes helpers for infra/kind scripts.
+# Shared Kubernetes helpers for homelab scripts.
 
 if [[ -n "${KIND_KUBERNETES_SH_LOADED:-}" ]]; then
   return 0

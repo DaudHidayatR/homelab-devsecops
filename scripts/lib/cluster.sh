@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Shared kind cluster helpers for infra/kind scripts.
+# Shared kind cluster helpers for homelab scripts.
 
 if [[ -n "${KIND_CLUSTER_SH_LOADED:-}" ]]; then
   return 0

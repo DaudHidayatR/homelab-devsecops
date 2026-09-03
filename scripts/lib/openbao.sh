@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Shared OpenBao helpers for infra/kind scripts.
+# Shared OpenBao helpers for homelab scripts.
 
 if [[ -n "${KIND_OPENBAO_SH_LOADED:-}" ]]; then
   return 0
