@@ -4,9 +4,8 @@ metadata:
   name: openbao-tailnet
   namespace: openbao
   annotations:
-    # Tailscale terminates HTTPS at the tailnet boundary and forwards every
-    # OpenBao UI and API path to the in-cluster HTTP service.
-    # Generated hostname: openbao-openbao-tailnet-ingress.<tailnet>.ts.net.
+    # Tailscale provides private HTTPS at openbao.<tailnet>.ts.net.
+    tailscale.com/hostname: openbao
 spec:
   ingressClassName: tailscale
   rules:
