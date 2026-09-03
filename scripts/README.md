@@ -82,26 +82,24 @@ TAILSCALE_CLIENT_SECRET="..."
 Automated steps:
 
 1. Create the `tailscale` namespace if needed.
-2. Restore and validate any saved `tailscale/operator` identity before operator startup.
-3. Create the optional `operator-oauth` Secret from configured OAuth credentials.
-4. Install the Tailscale Kubernetes Operator when missing.
-5. Tailscale-class Ingresses (`headlamp-tailnet`, `openbao-tailnet`) declare tailnet access.
-6. Wait for operator-managed proxy pods.
-7. Verify declared access with `scripts/homelab tailscale status` (ingresses + proxy pods).
+2. Deliver the `operator-oauth` Secret out-of-band (SOPS-encrypted source first, `TAILSCALE_CLIENT_ID`/`TAILSCALE_CLIENT_SECRET` env fallback).
+3. Bootstrap Flux; the platform layer applies the operator HelmRelease and the declarative `ingressClassName: tailscale` Ingresses (Headlamp, OpenBao).
+4. Verify the Flux-managed operator rollout is Ready.
+5. Verify declared access with `scripts/homelab tailscale status` (ingresses + proxy pods) and `scripts/homelab tailscale check` (DNS, Serve, HTTPS).
 
-Use this primary path for normal first-time setup.
+Identity restore is not part of `make up`; it belongs to the cluster rebuild/recovery flow (see below). Use this primary path for normal first-time setup.
 
-## Manual Tailscale install and Serve repair
+## Manual Tailscale verification
 
 Use this when Tailscale credentials were not present during `make up`, or when you are repairing only Tailscale access:
 
 ```bash
 make tailscale
-scripts/homelab tailscale status
+
 scripts/homelab tailscale check
 ```
 
-`make tailscale` runs `scripts/homelab tailscale install`. Treat it as an advanced/manual path, not the default `make up` path.
+`make tailscale` runs `scripts/homelab tailscale install`. Treat it as an advanced/manual path, not the default `make up` path. Tailnet access needs no manual Serve configuration: the Tailscale operator derives Serve from the declared `ingressClassName: tailscale` Ingresses, and proxy pods appear once Flux reconciles them.
 
 ## Tailscale identity recovery during cluster rebuild
 
@@ -120,7 +118,7 @@ Ordered recovery:
 1. Run `BACKUP_DIR=.runtime-backups/tailscale/<timestamp> make recover`.
 2. With a live cluster, recovery validates and backs up live Secret `tailscale/operator`, deletes the cluster, and uses that fresh backup instead of the older supplied path.
 3. Recovery creates a bare kind cluster, restores identity before operator startup, and bootstraps Flux and workloads. Missing or malformed identity aborts the operation.
-4. If required, run `scripts/homelab tailscale sign --sudo`, then re-check declared access with `scripts/homelab tailscale status`.
+4. If required, run `scripts/homelab tailscale sign --sudo`, then `scripts/homelab tailscale check`.
 5. Verify the operator rollout and identity:
    ```bash
    kubectl rollout status deployment/operator -n tailscale --timeout=120s
@@ -137,7 +135,7 @@ Proxy identities are not restored by recovery (see above), so after a rebuild th
 ```bash
 scripts/homelab tailscale reset
 scripts/homelab tailscale sign --sudo
-scripts/homelab tailscale status
+
 scripts/homelab tailscale check
 ```
 

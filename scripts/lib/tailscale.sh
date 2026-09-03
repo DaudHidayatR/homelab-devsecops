@@ -156,28 +156,15 @@ PY
   log::success "Tailscale operator identity restored before startup."
 }
 
+# Proxy-pod discovery is kept ONLY as a diagnostic input for
+# 'scripts/homelab tailscale check' (Serve status inspection). Serve
+# configuration is owned exclusively by the Tailscale operator via
+# tailscale-class Ingresses (audit v2 §32/§54/§67); the redundant
+# in-cluster Deployment that re-applied Serve on a loop was removed.
 tailscale::proxy_pods() {
   kubectl get pods -n "${TAILSCALE_NAMESPACE}" \
     -l tailscale.com/managed=true,tailscale.com/parent-resource-type=svc \
     -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null || true
-}
-
-tailscale::wait_proxy_pods() {
-  local attempts="${1:-30}"
-  local delay="${2:-5}"
-  local proxy_count
-
-  for _i in $(seq 1 "${attempts}"); do
-    proxy_count="$(tailscale::proxy_pods | grep -cv 'operator-' || true)"
-    if [[ "${proxy_count}" -gt 0 ]]; then
-      log::success "Found ${proxy_count} Tailscale proxy pod(s)."
-      return 0
-    fi
-    sleep "${delay}"
-  done
-
-  log::warn "No Tailscale proxy pods found after waiting. Ingress-backed proxies appear once Flux reconciles the declared Ingresses; check 'kubectl get ingress -A'."
-  return 1
 }
 
 tailscale::wait_operator() {

@@ -61,7 +61,7 @@ Flux bootstraps at `kubernetes/clusters/homelab` and reconciles ordered layers: 
 | `flux` CLI is installed, `flux check --pre` passes, and `GITHUB_USER` + `GITHUB_TOKEN` are set | Flux bootstraps from GitHub and reconciles `kubernetes/clusters/homelab` | `GITHUB_USER`, `GITHUB_TOKEN` | OpenBao init/unseal |
 | Flux bootstrap succeeds | Flux GitRepository watches the configured ref; production CI pins it to the pushed `v*` tag | none | — |
 | Flux prerequisites are missing | Setup stops before applying desired state | working Flux and GitHub credentials | Resolve the reported prerequisite and rerun `make up` |
-| `TAILSCALE_CLIENT_ID` and `TAILSCALE_CLIENT_SECRET` are set | Tailscale namespace/OAuth Secret are delivered and the Flux-managed operator is installed; tailnet access is declared through `ingressClassName: tailscale` Ingresses | Tailscale OAuth client credentials | Tailnet Lock signing may still be required via `make tailscale-sign` |
+| `TAILSCALE_CLIENT_ID` and `TAILSCALE_CLIENT_SECRET` are set | Tailscale namespace/OAuth Secret/operator are installed; tailnet access is declared via tailscale-class Ingresses (Headlamp, OpenBao) | Tailscale OAuth client credentials | Tailnet Lock signing may still be required via `make tailscale-sign` |
 | Tailscale credentials are absent | Tailscale installation is skipped | none | Use port-forwarding or run `make tailscale` after credentials are configured |
 | Fresh OpenBao install | OpenBao pod is deployed but sealed/uninitialized | deployed OpenBao pod | Run `scripts/homelab openbao bootstrap` |
 | Existing initialized OpenBao | Bootstrap/status scripts can unseal and reconcile idempotent parts | root/admin token or local backup files | Re-run `make openbao-policies` after policy changes |
@@ -386,7 +386,7 @@ The operator install is Flux-owned (HelmRelease `tailscale-operator`, chart 1.10
 > data plane. Switch to the researched Cilium/Calico path before running untrusted
 > workloads that require segmentation.
 
-Manual Tailscale install and Serve repair:
+Manual Tailscale verification:
 
 ```bash
 make tailscale          # verify the Flux-managed operator
@@ -395,6 +395,9 @@ scripts/homelab tailscale check
 ```
 
 Use this manual path when you intentionally skipped Tailscale during `make up` or are repairing tailnet service access. It does not restore operator identity or any OpenBao state; use the Tailscale identity procedure below for a destructive cluster rebuild. Detailed Tailscale guidance is in [`scripts/README.md`](scripts/README.md).
+=======
+Use this manual path when you intentionally skipped Tailscale during `make up` or are repairing tailnet access. It does not restore operator identity or any OpenBao state; use the Tailscale identity procedure below for a destructive cluster rebuild. Detailed Tailscale guidance is in [`scripts/README.md`](scripts/README.md).
+>>>>>>> origin/main
 
 Once the operator is running, access admin UIs directly from any device on your tailnet:
 
@@ -441,7 +444,7 @@ kubectl get secret operator -n tailscale
 scripts/homelab tailscale check
 ```
 
-Success is observable when the operator rollout completes, the restored Secret exists, `tailscale check` passes, and the Admin Console shows the existing operator device identity rather than a new duplicate such as `tailscale-operator-1`. Proxy devices reappear as new devices after recovery (their `ts-*` identity Secrets are not restored by design); sign them if Tailnet Lock is enabled, then re-check declared access with `scripts/homelab tailscale status`.
+Success is observable when the operator rollout completes, the restored Secret exists, `tailscale check` passes, and the Admin Console shows the existing operator device identity rather than a new duplicate such as `tailscale-operator-1`. Proxy devices reappear as new devices after recovery (their `ts-*` identity Secrets are not restored by design); sign them if Tailnet Lock is enabled, then verify with `scripts/homelab tailscale check`.
 
 If Tailscale devices were deleted manually in the Tailscale Admin Console, reset the stale Kubernetes identities and let the proxies register fresh:
 
@@ -458,7 +461,7 @@ Tailnet Lock is enabled in this environment. Any newly registered Kubernetes pro
 scripts/homelab tailscale sign
 ```
 
-For a VPS reboot, the cluster should recover as long as the container runtime, kind node, and host Tailscale daemon restart normally. Re-run Serve configuration and access checks after proxy restarts:
+For a VPS reboot, the cluster should recover as long as the container runtime, kind node, and host Tailscale daemon restart normally. Re-run access checks after proxy restarts:
 
 ```bash
 scripts/homelab tailscale check
