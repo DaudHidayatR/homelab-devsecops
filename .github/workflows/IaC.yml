@@ -93,6 +93,10 @@ jobs:
           tflint -f compact
       - name: OpenBao Raft path vs PVC mount
         run: python3 scripts/check_openbao_raft_path.py
+      - name: Shell syntax checks
+        run: make syntax-sh
+      - name: Lifecycle and shell regression suite
+        run: bash scripts/homelab_test.sh
 
   secrets:
     name: Secret Detection
