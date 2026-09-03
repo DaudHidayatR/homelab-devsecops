@@ -56,15 +56,13 @@ main() {
 
   tailscale::install_operator
 
-  log::info "Waiting for Tailscale proxy pods to be ready."
-  if ! tailscale::wait_proxy_pods 30 5; then
-    log::warn "No proxy pods yet. Declare access via tailscale-class Ingresses (see kubernetes/clusters/homelab/apps/headlamp/ingress.yaml); proxies appear once Flux reconciles them."
-  fi
-
   log::success "Tailscale operator verification complete."
   cat <<'MSG'
 Tailnet access is declared with tailscale-class Ingresses. The operator serves
-https://<service>-<namespace>.<tailnet>.ts.net for each Ingress.
+https://<service>-<namespace>.<tailnet>.ts.net for each Ingress; proxy pods
+appear once Flux reconciles the declared Ingresses. Verify with:
+  scripts/homelab tailscale status   # ingresses + proxy pods
+  scripts/homelab tailscale check    # DNS + Serve + HTTPS
 
 For public internet access, add the annotation:
   tailscale.com/funnel: "true"

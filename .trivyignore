@@ -2,8 +2,3 @@
 # Raw-file scanning reports false positives; rendered-manifest scanning is authoritative.
 KSV-0014
 KSV-0118
-# KSV053 (Exec into Pods): the Tailscale serve watcher needs pods/exec create
-# to run `tailscale serve` on Tailscale-managed proxy pods. The Role is
-# namespaced to tailscale and the watcher script filters pods by the
-# tailscale.com/managed=true label; the Deployment passes workload hardening.
-KSV053
