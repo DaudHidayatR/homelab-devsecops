@@ -5,7 +5,6 @@ Cluster policy sources now live with their owning homelab cluster:
 ```text
 kubernetes/clusters/homelab/
 ├── cluster-policies/
-│   ├── network/
 │   ├── pod-security/
 │   └── resource-governance/
 └── platform/openbao/configuration/policies/

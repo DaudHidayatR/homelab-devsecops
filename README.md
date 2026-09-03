@@ -17,7 +17,7 @@ All desired cluster state lives below `kubernetes/`:
 
 - `kubernetes/clusters/homelab/flux/`: ordered Flux reconciliation layers.
 - `kubernetes/clusters/homelab/bootstrap/`: namespaces and local kind cluster configuration.
-- `kubernetes/clusters/homelab/cluster-resources/`: cluster-scoped RBAC, storage, networking, and admission resources.
+- `kubernetes/clusters/homelab/cluster-resources/`: cluster-scoped RBAC, storage, and networking resources.
 - `kubernetes/clusters/homelab/platform/`: OpenBao, Istio, and future platform services.
 - `kubernetes/clusters/homelab/apps/`: application-owned manifests.
 - `kubernetes/clusters/homelab/operations/`: operational Jobs and CronJobs.
