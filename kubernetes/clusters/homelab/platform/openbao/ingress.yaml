@@ -5,9 +5,11 @@ metadata:
   namespace: openbao
   annotations:
     # Tailscale provides private HTTPS at openbao.<tailnet>.ts.net.
-    tailscale.com/hostname: openbao
 spec:
   ingressClassName: tailscale
+  tls:
+    - hosts:
+        - openbao
   rules:
     - http:
         paths:
