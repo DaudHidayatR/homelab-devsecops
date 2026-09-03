@@ -184,9 +184,19 @@ jobs:
             checkov-report.sarif
           retention-days: 30
 
+  policy-inputs:
+    name: Policy Inputs Guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Validate CI policy inputs
+        run: python3 scripts/check_kyverno_policies.py
+
   policy:
     name: Policy Check
     runs-on: ubuntu-latest
+    needs: [policy-inputs]
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -199,7 +209,6 @@ jobs:
             kubernetes/clusters/homelab/bootstrap \
             kubernetes/clusters/homelab/cluster-resources \
             kubernetes/clusters/homelab/platform \
-            kubernetes/clusters/homelab/cluster-policies \
             kubernetes/clusters/homelab/operations \
             kubernetes/clusters/homelab/apps \
             kubernetes/clusters/homelab/flux \
@@ -220,19 +229,18 @@ jobs:
             echo "has_manifests=false" >> "$GITHUB_OUTPUT"
           fi
       - name: Conftest
-        if: >-
-          steps.kustomize.outputs.has_manifests == 'true' &&
-          hashFiles('kubernetes/clusters/homelab/cluster-policies/**/*.rego') != ''
+        if: steps.kustomize.outputs.has_manifests == 'true'
         run: |
           docker run --rm -v "$PWD:/src" -w /src "$CONFTEST_IMAGE" test \
             --policy /src/kubernetes/clusters/homelab/cluster-policies/ /src/rendered-manifests/
       - name: Kyverno policy check
-        if: >-
-          steps.kustomize.outputs.has_manifests == 'true' &&
-          hashFiles('kubernetes/clusters/homelab/cluster-policies/**/*.yaml') != ''
+        if: steps.kustomize.outputs.has_manifests == 'true'
         run: |
           docker run --rm -v "$PWD:/src" -w /src "$KYVERNO_IMAGE" \
-            apply /src/kubernetes/clusters/homelab/cluster-policies/ --resource /src/rendered-manifests.yaml
+            apply \
+              /src/kubernetes/clusters/homelab/cluster-policies/pod-security/disallow-privileged.yaml \
+              /src/kubernetes/clusters/homelab/cluster-policies/resource-governance/require-labels.yaml \
+              --resource /src/rendered-manifests.yaml --detailed-results
 
   deploy:
     name: Deploy (Flux reconcile via Tailscale)
@@ -352,7 +360,7 @@ jobs:
 
       - name: Reconcile layered cluster state
         run: |
-          for layer in bootstrap cluster-resources platform openbao-config cluster-policies operations apps; do
+          for layer in bootstrap cluster-resources platform openbao-config operations apps; do
             flux reconcile kustomization "$layer" --timeout=10m
           done
 

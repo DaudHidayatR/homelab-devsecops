@@ -9,7 +9,6 @@ for overlay in \
   cluster-resources \
   platform \
   platform/openbao/configuration \
-  cluster-policies \
   operations \
   apps \
   flux \

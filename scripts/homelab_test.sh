@@ -110,7 +110,7 @@ wait = re.search(r'kubectl wait --for=condition=Ready \\\n((?:\s+kustomization/[
 assert wait
 assert re.findall(r'kustomization/([\w-]+)', wait.group(1)) == [
     'bootstrap', 'cluster-resources', 'platform', 'openbao-config',
-    'cluster-policies', 'operations', 'apps',
+    'operations', 'apps',
 ]
 assert source.index(wait.group(0)) < source.index('setup::print_summary', source.index('main()'))
 PY

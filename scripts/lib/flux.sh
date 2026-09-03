@@ -19,7 +19,7 @@ flux::reconcile() {
   log::info "Reconciling Flux layers before applications."
   flux reconcile source git flux-system
   local layer
-  for layer in bootstrap cluster-resources platform openbao-config cluster-policies operations apps; do
+  for layer in bootstrap cluster-resources platform openbao-config operations apps; do
     flux reconcile kustomization "${layer}"
   done
   flux get kustomizations

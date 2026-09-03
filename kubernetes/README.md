@@ -5,7 +5,6 @@ Cluster policy sources now live with their owning homelab cluster:
 ```text
 kubernetes/clusters/homelab/
 ├── cluster-policies/
-│   ├── network/
 │   ├── pod-security/
 │   └── resource-governance/
 └── platform/openbao/configuration/policies/
@@ -13,7 +12,7 @@ kubernetes/clusters/homelab/
     └── platform/
 ```
 
-Kyverno and Conftest consume `cluster-policies/` in the IaC workflow. OpenBao policies are applied through `scripts/homelab openbao bootstrap` and `scripts/homelab openbao policies`.
+CI-only policy validation: Kyverno and Conftest consume `cluster-policies/` in the IaC workflow's `policy` job; the policies are never deployed to the cluster. OpenBao policies are applied through `scripts/homelab openbao bootstrap` and `scripts/homelab openbao policies`.
 
 ## OpenBao Policies
 
@@ -49,4 +48,4 @@ make openbao-status
 
 ## Cluster Policies
 
-Place Kyverno YAML and Conftest Rego under `kubernetes/clusters/homelab/cluster-policies/`, grouped by enforcement concern. Run `make validate-kustomize` before pushing.
+Place Kyverno YAML and Conftest Rego under `kubernetes/clusters/homelab/cluster-policies/`, grouped by enforcement concern. These are CI-validation inputs only — Flux never deploys this directory. When you add a ClusterPolicy, wire it into the `Kyverno policy check` step in `.github/workflows/IaC.yml`; `scripts/check_kyverno_policies.py` fails CI if the policy sources and the gate drift apart. Run `make validate-kustomize` before pushing.

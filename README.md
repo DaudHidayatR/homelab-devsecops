@@ -17,7 +17,7 @@ All desired cluster state lives below `kubernetes/`:
 
 - `kubernetes/clusters/homelab/flux/`: ordered Flux reconciliation layers.
 - `kubernetes/clusters/homelab/bootstrap/`: namespaces and local kind cluster configuration.
-- `kubernetes/clusters/homelab/cluster-resources/`: cluster-scoped RBAC, storage, networking, and admission resources.
+- `kubernetes/clusters/homelab/cluster-resources/`: cluster-scoped RBAC, storage, and networking resources.
 - `kubernetes/clusters/homelab/platform/`: OpenBao, Istio, and future platform services.
 - `kubernetes/clusters/homelab/apps/`: application-owned manifests.
 - `kubernetes/clusters/homelab/operations/`: operational Jobs and CronJobs.
@@ -133,7 +133,6 @@ This project uses [Flux CD](https://fluxcd.io) to automatically reconcile cluste
 | `flux/kustomizations/10-cluster-resources.yaml` | Reconciles cluster-scoped RBAC and future storage/network resources |
 | `flux/kustomizations/20-platform.yaml` | Reconciles OpenBao and Istio |
 | `flux/kustomizations/30-openbao-config.yaml` | Publishes versioned OpenBao policy sources after the OpenBao platform layer |
-| `flux/kustomizations/40-cluster-policies.yaml` | Reconciles deployable cluster policies |
 | `flux/kustomizations/50-operations.yaml` | Reconciles operational workloads |
 | `flux/kustomizations/60-apps.yaml` | Reconciles sample-app and Headlamp |
 
@@ -382,7 +381,7 @@ The operator install is Flux-owned (HelmRelease `tailscale-operator`, chart 1.10
 
 > **NetworkPolicy limit:** this kind cluster keeps the default kindnetd CNI. Any
 > NetworkPolicy committed here is CI-validated declarative intent only and is **not
-> enforced at runtime**. PSA and Kyverno admission checks do not replace a policy-capable
+> enforced at runtime**. PSA labels do not replace a policy-capable
 > data plane. Switch to the researched Cilium/Calico path before running untrusted
 > workloads that require segmentation.
 
