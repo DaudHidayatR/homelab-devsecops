@@ -381,7 +381,7 @@ The operator install is Flux-owned (HelmRelease `tailscale-operator`, chart 1.10
 
 > **NetworkPolicy limit:** this kind cluster keeps the default kindnetd CNI. Any
 > NetworkPolicy committed here is CI-validated declarative intent only and is **not
-> enforced at runtime**. PSA and Kyverno admission checks do not replace a policy-capable
+> enforced at runtime**. PSA labels do not replace a policy-capable
 > data plane. Switch to the researched Cilium/Calico path before running untrusted
 > workloads that require segmentation.
 
