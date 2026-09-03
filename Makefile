@@ -81,7 +81,6 @@ sync:
 	@flux reconcile kustomization cluster-resources
 	@flux reconcile kustomization platform
 	@flux reconcile kustomization openbao-config
-	@flux reconcile kustomization cluster-policies
 	@flux reconcile kustomization operations
 	@flux reconcile kustomization apps
 
@@ -93,7 +92,7 @@ flux-status:
 
 flux-diff:
 	@command -v flux >/dev/null 2>&1 || { echo "Flux CLI is required for flux-diff" >&2; exit 1; }
-	@for layer in bootstrap cluster-resources platform openbao-config cluster-policies operations apps; do \
+	@for layer in bootstrap cluster-resources platform openbao-config operations apps; do \
 		echo "--- Diffing $$layer"; \
 		flux diff kustomization "$$layer" || true; \
 	done

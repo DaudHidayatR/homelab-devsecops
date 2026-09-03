@@ -133,7 +133,6 @@ This project uses [Flux CD](https://fluxcd.io) to automatically reconcile cluste
 | `flux/kustomizations/10-cluster-resources.yaml` | Reconciles cluster-scoped RBAC and future storage/network resources |
 | `flux/kustomizations/20-platform.yaml` | Reconciles OpenBao and Istio |
 | `flux/kustomizations/30-openbao-config.yaml` | Publishes versioned OpenBao policy sources after the OpenBao platform layer |
-| `flux/kustomizations/40-cluster-policies.yaml` | Reconciles deployable cluster policies |
 | `flux/kustomizations/50-operations.yaml` | Reconciles operational workloads |
 | `flux/kustomizations/60-apps.yaml` | Reconciles sample-app and Headlamp |
 

@@ -87,7 +87,6 @@ main() {
     kustomization/cluster-resources \
     kustomization/platform \
     kustomization/openbao-config \
-    kustomization/cluster-policies \
     kustomization/operations \
     kustomization/apps \
     -n flux-system --timeout=300s

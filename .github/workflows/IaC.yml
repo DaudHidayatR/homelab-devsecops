@@ -199,7 +199,6 @@ jobs:
             kubernetes/clusters/homelab/bootstrap \
             kubernetes/clusters/homelab/cluster-resources \
             kubernetes/clusters/homelab/platform \
-            kubernetes/clusters/homelab/cluster-policies \
             kubernetes/clusters/homelab/operations \
             kubernetes/clusters/homelab/apps \
             kubernetes/clusters/homelab/flux \
@@ -352,7 +351,7 @@ jobs:
 
       - name: Reconcile layered cluster state
         run: |
-          for layer in bootstrap cluster-resources platform openbao-config cluster-policies operations apps; do
+          for layer in bootstrap cluster-resources platform openbao-config operations apps; do
             flux reconcile kustomization "$layer" --timeout=10m
           done
 
