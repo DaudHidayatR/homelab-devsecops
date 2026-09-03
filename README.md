@@ -8,8 +8,8 @@ A minimal, rootless local development environment using `kind` and Istio. Design
 - `kind` CLI
 - `kubectl` CLI *(Kustomize is built-in since v1.14; no separate install needed)*
 - `istioctl` CLI
-- `helm` CLI *(fallback only; Flux manages OpenBao declaratively)*
-- `flux` CLI *(optional; enables GitOps reconciliation. Install from [fluxcd.io](https://fluxcd.io/flux/installation/))*
+- `helm` CLI *(optional; only `scripts/check_openbao_raft_path.py` uses it for chart-render validation)*
+- `flux` CLI *(required: `make up` bootstraps and reconciles through Flux and fails closed without it. Install from [fluxcd.io](https://fluxcd.io/flux/installation/))*
 
 ## Project Structure
 
@@ -66,7 +66,7 @@ Flux bootstraps at `kubernetes/clusters/homelab` and reconciles ordered layers: 
 | Fresh OpenBao install | OpenBao pod is deployed but sealed/uninitialized | deployed OpenBao pod | Run `scripts/homelab openbao bootstrap` |
 | Existing initialized OpenBao | Bootstrap/status scripts can unseal and reconcile idempotent parts | root/admin token or local backup files | Re-run `make openbao-policies` after policy changes |
 
-After `make up`, the summary reports Flux, semver, Tailscale, and OpenBao bootstrap state.
+After `make up`, the setup summary reports the deployment mode, Tailscale mode, and OpenBao post-setup steps.
 
 ### Operational script map
 
@@ -143,10 +143,10 @@ This project uses **branch-main deployment via Flux**. One system controls what 
 
 | System | What it watches | Triggers deploy on `main` push? |
 |---|---|---|
-| **GitHub Actions CI/CD** | `main` pushes | No — CI validates only; the deploy job runs against the declared branch-main source |
+| **GitHub Actions CI/CD** | `main` pushes and `v*` tags | `main`: validation only. `v*` tags: production deploy — CI pins `GitRepository/flux-system` to the tag |
 | **Flux Source Controller** | Branch `main` | **Yes** |
 
-Flux's `GitRepository` watches `ref.branch: main`. Every signed merge to `main` reconciles automatically; rollback is `git revert` on `main`. There is no runtime ref switching, no tag selector, and no `make tag` flow.
+Flux's `GitRepository` watches `ref.branch: main`. Every signed merge to `main` reconciles automatically; rollback is `git revert` on `main`. Lab deployments have no runtime ref switching and no tag selector. The production pipeline is the single exception: a `v*` tag pins the source to one immutable release (see [CI/CD Auto-Deploy](#cicd-auto-deploy)); `make tag` exists only for that flow.
 
 This is the recommended mode for a solo-dev GitOps workflow. If you need to change the range (e.g., to `">=1.0.0 <2.0.0"`), update `config.env` and re-run `make up`.
 
@@ -192,13 +192,15 @@ production:
 6. The job waits for every layer to report `Ready`.
 7. A smoke test prints pod status and Flux resource health.
 
+Rollback: repeat the deploy job's source step with `ref.tag` pointing at the previous `v*` release, then reconcile the layers as the job does. Lab/kind deployments roll back with `git revert` on `main`; no automatic state restore exists.
+
+Rollback: repeat the deploy job's source step with `ref.tag` pointing at the previous `v*` release, then reconcile the layers as the job does. Lab/kind deployments roll back with `git revert` on `main`; no automatic state restore exists.
+
 ### One-Time Setup
 
-- **[VPS Tailscale Setup](../../../document-project/web-documentasi/devsecops-homelab/template-wiki/Wiki/Concepts/network-and-trust-boundaries.md)** — Install Tailscale on the VPS host,
-  get its Tailscale IP, and verify connectivity.
+- **VPS Tailscale Setup** — Install Tailscale on the VPS host, get its IP with `tailscale ip -4`, and verify connectivity with `tailscale status`.
 - **CI Deploy Secrets** — Generate a Tailscale auth key with **Reusable**, **Ephemeral**, and **Pre-approved** enabled and the restricted CI tag, sign that auth key once on a trusted Tailnet Lock signing node, and store the complete generated output as the production environment secret `TS_AUTHKEY`. Also encode the kubeconfig and configure it as the production environment secret `KUBECONFIG`. Rotate the auth key before its configured expiry; never sign individual GitHub runner nodes.
-- **[Tailscale VPS Strategy](../../../document-project/web-documentasi/devsecops-homelab/template-wiki/Wiki/Entities/tailscale.md)** — Full reference including
-  security model, TLS cert handling, and troubleshooting.
+- **Tailscale strategy in this repo** — [`tailscale/README.md`](tailscale/README.md) (operator credentials/SOPS flow) and [`scripts/README.md`](scripts/README.md) (declarative L7 access, recovery).
 
 ### Manual Trigger
 
@@ -392,14 +394,17 @@ scripts/homelab tailscale status
 scripts/homelab tailscale check
 ```
 
+Use this manual path when you intentionally skipped Tailscale during `make up` or are repairing tailnet service access. It does not restore operator identity or any OpenBao state; use the Tailscale identity procedure below for a destructive cluster rebuild. Detailed Tailscale guidance is in [`scripts/README.md`](scripts/README.md).
+=======
 Use this manual path when you intentionally skipped Tailscale during `make up` or are repairing tailnet access. It does not restore operator identity or any OpenBao state; use the Tailscale identity procedure below for a destructive cluster rebuild. Detailed Tailscale guidance is in [`scripts/README.md`](scripts/README.md).
+>>>>>>> origin/main
 
 Once the operator is running, access admin UIs directly from any device on your tailnet:
 
    | Service | Tailnet URL |
    |---------|-------------|
-   | Headlamp | `https://headlamp-headlamp.<tailnet>.ts.net` |
-   | OpenBao  | `https://openbao-openbao.<tailnet>.ts.net/ui/` |
+   | Headlamp | `https://headlamp.<tailnet>.ts.net` |
+   | OpenBao  | `https://openbao.<tailnet>.ts.net/ui/` |
 
 3. No port-forwarding, SSH tunnels, or public IPs required.
 

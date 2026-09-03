@@ -8,8 +8,8 @@
 #   scripts/homelab security scan validate     # Validate report files only
 #
 # Environment:
-#   SCAN_ROOT         — project directory to scan (default: this infra/kind directory)
-#   SCAN_OUTPUT       — directory for generated reports (default: this infra/kind directory)
+#   SCAN_ROOT         — project directory to scan (default: the repository root)
+#   SCAN_OUTPUT       — directory for generated reports (default: the repository root)
 #   SCAN_RUNTIME_ARGS — extra Docker/Podman flags, for example: --dns 1.1.1.1
 #   TRIVY_IMAGE       — Trivy container image
 #   GRYPE_IMAGE       — Grype container image

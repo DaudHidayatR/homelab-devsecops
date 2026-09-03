@@ -1,8 +1,8 @@
 # Project Guidance
 
 ## Deployment ownership
-- Flux owns ongoing deployment. Reconcile `infrastructure` before `apps`; never directly apply those trees as a Flux fallback.
-- `clusters/kind/infrastructure.yaml` and `clusters/kind/apps.yaml` are the deployment aggregates.
+- Flux owns ongoing deployment. Reconcile the ordered layers under `kubernetes/clusters/homelab/flux/kustomizations/` (bootstrap, cluster-resources, platform, openbao-config, cluster-policies, operations, apps); never directly apply those trees as a Flux fallback.
+- `kubernetes/clusters/homelab/` is the desired-state root; the seven layer Kustomizations above are the deployment units.
 - `CLUSTER_NAME` is the only cluster identity; derive the context as `kind-${CLUSTER_NAME}`.
 
 ## Generated artifacts

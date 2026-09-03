@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Shared Flux helpers for infra/kind scripts.
+# Shared Flux helpers for homelab scripts.
 
 if [[ -n "${KIND_FLUX_SH_LOADED:-}" ]]; then
   return 0

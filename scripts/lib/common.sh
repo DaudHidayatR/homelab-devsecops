@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Shared shell primitives for infra/kind scripts.
+# Shared shell primitives for homelab scripts.
 
 if [[ -n "${KIND_COMMON_SH_LOADED:-}" ]]; then
   return 0

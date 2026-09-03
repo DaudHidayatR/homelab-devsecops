@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Shared Tailscale helpers for infra/kind scripts.
+# Shared Tailscale helpers for homelab scripts.
 #
 # Ownership contract (architecture audit v2 remediation, 2026-08-31):
 # Flux declares and owns the Tailscale operator installation via the

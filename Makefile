@@ -92,10 +92,11 @@ flux-status:
 	flux get all
 
 flux-diff:
-	@echo "Diffing infrastructure..."
-	flux diff kustomization infrastructure
-	@echo "Diffing apps..."
-	flux diff kustomization apps
+	@command -v flux >/dev/null 2>&1 || { echo "Flux CLI is required for flux-diff" >&2; exit 1; }
+	@for layer in bootstrap cluster-resources platform openbao-config cluster-policies operations apps; do \
+		echo "--- Diffing $$layer"; \
+		flux diff kustomization "$$layer" || true; \
+	done
 
 security: ## Run full security scan suite
 	@./scripts/homelab security scan
@@ -184,7 +185,7 @@ help: ## Show this help
 	@echo "  make tailscale           - Install the Tailscale Kubernetes Operator"
 	@echo "  make tailscale-reset     - Reset stale Kubernetes Tailscale proxy identities"
 	@echo "  make tailscale-sign      - Sign Kubernetes Tailscale proxy nodes for Tailnet Lock"
-	@echo "  make tailscale-check     - Check Tailscale DNS, Serve config, and HTTPS access"
+	@echo "  make tailscale-check     - Check Tailscale DNS and declared Ingress access"
 	@echo "  make status              - Show pod status across all namespaces"
 	@echo "  make access-info         - Show URLs and port-forward instructions"
 	@echo "  make openbao-policies    - Apply OpenBao policy-as-code files"

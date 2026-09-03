@@ -219,9 +219,9 @@ command_cluster_info() {
   (
 set -eo pipefail
 
-# show-access-info.sh — Post-setup access instructions
+# command_cluster_info — Post-setup access instructions
 # Principle: SRP — this script has one reason to change: how users access services.
-# setup.sh has one reason to change: infrastructure orchestration.
+# command_cluster_up has one reason to change: infrastructure orchestration.
 
 PROJECT_ROOT="$ROOT_DIR"
 # shellcheck source=/dev/null
@@ -234,8 +234,8 @@ Check pod status with: kubectl get pods -n ${DEMO_NAMESPACE}
 --- Tailscale Private Access ---
 If TAILSCALE_CLIENT_ID and TAILSCALE_CLIENT_SECRET are set in config.env,
 admin UIs are automatically available on your tailnet:
-   Headlamp:  https://headlamp-headlamp.<tailnet>.ts.net
-   OpenBao:   https://openbao-openbao.<tailnet>.ts.net
+   Headlamp:  https://headlamp.<tailnet>.ts.net
+   OpenBao:   https://openbao.<tailnet>.ts.net
 
 If Tailscale credentials are not configured, use legacy port-forward access below.
 
