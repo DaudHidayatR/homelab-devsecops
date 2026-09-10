@@ -21,7 +21,7 @@ All desired cluster state lives below `kubernetes/`:
 - `kubernetes/clusters/homelab/platform/`: OpenBao, Istio, and future platform services.
 - `kubernetes/clusters/homelab/apps/`: application-owned manifests.
 - `kubernetes/clusters/homelab/operations/`: operational Jobs and CronJobs.
-- `kubernetes/clusters/homelab/cluster-policies/`: policy and governance sources.
+- `kubernetes/clusters/homelab/cluster-policies/`: policy and governance sources. CI-only — validated in the IaC workflow, never deployed by Flux.
 - `kubernetes/components/`: reusable Kustomize components.
 - `kubernetes/scripts/`: validation, diff, and health wrappers.
 - `config.env`: local script configuration.
