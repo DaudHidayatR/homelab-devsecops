@@ -59,16 +59,15 @@ tailscale::ensure_deploy_secret() {
 
   local enc_file="${COMMON_REPO_ROOT}/tailscale/operator-oauth.enc.yaml"
   if [[ -s "${enc_file}" ]] && command -v sops >/dev/null 2>&1; then
-    local plain
-    plain="$(mktemp "${TMPDIR:-/tmp}/operator-oauth.XXXXXX")"
-    chmod 0600 "${plain}"
-    if sops -d "${enc_file}" >"${plain}" 2>/dev/null; then
-      kubectl apply -f "${plain}" >/dev/null
-      rm -f "${plain}"
+    # Hardening P4: stream the decrypted Secret directly from sops stdout to
+    # kubectl stdin so the plaintext OAuth manifest never touches disk. The
+    # entrypoint runs `set -Eeuo pipefail`, so a kubectl apply failure inside
+    # the pipe fails this branch just like a decryption failure would. The
+    # decrypted content is never echoed, logged, or written to a temp file.
+    if sops -d "${enc_file}" 2>/dev/null | kubectl apply -f - >/dev/null; then
       log::success "Applied ${TAILSCALE_NAMESPACE}/${TAILSCALE_OPERATOR_OAUTH_SECRET} from the SOPS-encrypted source."
       return 0
     fi
-    rm -f "${plain}"
     log::warn "sops decryption failed for tailscale/operator-oauth.enc.yaml (placeholder recipient?); falling back to environment credentials."
   elif [[ -s "${enc_file}" ]]; then
     log::warn "tailscale/operator-oauth.enc.yaml exists but sops is not installed; falling back to environment credentials."
