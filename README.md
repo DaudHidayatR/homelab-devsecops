@@ -199,6 +199,7 @@ Rollback: repeat the deploy job's source step with `ref.tag` pointing at the pre
 
 - **VPS Tailscale Setup** — Install Tailscale on the VPS host, get its IP with `tailscale ip -4`, and verify connectivity with `tailscale status`.
 - **CI Deploy Secrets** — Generate a Tailscale auth key with **Reusable**, **Ephemeral**, and **Pre-approved** enabled and the restricted CI tag, sign that auth key once on a trusted Tailnet Lock signing node, and store the complete generated output as the production environment secret `TS_AUTHKEY`. Also encode the kubeconfig and configure it as the production environment secret `KUBECONFIG`. Rotate the auth key before its configured expiry; never sign individual GitHub runner nodes.
+- **CI Kubernetes privileges** — the production `KUBECONFIG` secret currently represents the full kind admin identity, not the declared `ci-deployer` ServiceAccount. The operation-by-operation privilege matrix, current-vs-required gap analysis, and the bootstrap-vs-release identity separation plan live in [`kubernetes/ci-privilege-matrix.md`](kubernetes/ci-privilege-matrix.md).
 - **Tailscale strategy in this repo** — [`tailscale/README.md`](tailscale/README.md) (operator credentials/SOPS flow) and [`scripts/README.md`](scripts/README.md) (declarative L7 access, recovery).
 
 ### Manual Trigger
