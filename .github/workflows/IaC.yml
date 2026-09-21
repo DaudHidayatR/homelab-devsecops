@@ -255,6 +255,23 @@ jobs:
     environment: production
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          # Ancestry guard needs main's history; shallow checkout would false-block older-main tags.
+          fetch-depth: 0
+
+      - name: Guard — release tag must be in main history
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          sha="$(git rev-parse "${tag}^{commit}")"
+          git fetch --no-tags origin main
+          if git merge-base --is-ancestor "$sha" origin/main; then
+            echo "PASS: $tag ($sha) is reachable from origin/main."
+          else
+            echo "FAIL: $tag ($sha) is NOT reachable from origin/main."
+            echo "Releases must be tagged on commits in main history (older reviewed commits are fine)."
+            exit 1
+          fi
 
       - name: Validate Tailscale auth key
         env:
